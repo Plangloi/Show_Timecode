@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Show Control — Timecode Cue Sheet</title>
+<!-- SheetJS for XLSX import — download xlsx.full.min.js locally for offline LAN use -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
+  --text:#e6edf3;--dim:#8b949e;--muted:#484f58;
+  --red:#f85149;--green:#3fb950;--amber:#d29922;--blue:#58a6ff;--purple:#bc8cff;
+  --accent:#2d7dd2;
+  --font:'SF Mono','Cascadia Code','JetBrains Mono','Fira Code',monospace;
+  --sans:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+}
+html{font-size:13px;background:var(--bg);color:var(--text)}
+body{font-family:var(--sans);min-height:100vh}
+
+.top-bar{position:sticky;top:0;z-index:100;background:var(--bg)}
+.header{background:linear-gradient(135deg,#1a1f2e,#0d1117);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.header-left{display:flex;align-items:center;gap:16px}
+.logo{font-family:var(--font);font-size:1.1rem;font-weight:700;color:var(--accent);letter-spacing:.05em;text-transform:uppercase}
+.logo span{color:var(--dim);font-weight:400;font-size:.85rem;margin-left:8px;letter-spacing:0}
+.clock{font-family:var(--font);font-size:1.6rem;font-weight:700;color:var(--green);letter-spacing:.08em;min-width:110px;text-align:right}
+.clock-label{font-size:.65rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;text-align:right}
+.meta-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:24px;flex-wrap:wrap;font-size:.85rem;color:var(--dim)}
+.meta-bar b{color:var(--text);font-weight:600;margin-right:4px}
+.filters{background:var(--surface);border-bottom:2px solid var(--accent);padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.filters label{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.filters select,.filters input[type="text"]{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:.85rem;font-family:var(--sans)}
+.filters select:focus,.filters input:focus{outline:none;border-color:var(--accent)}
+.filter-count{margin-left:auto;font-family:var(--font);font-size:.8rem;color:var(--dim)}
+.btn-sm{background:var(--surface2);color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:4px 10px;font-size:.8rem;cursor:pointer;font-family:var(--sans)}
+.btn-sm:hover{color:var(--text);border-color:var(--accent)}
+.btn-import{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:4px;padding:4px 12px;font-size:.8rem;cursor:pointer;font-family:var(--sans);font-weight:600}
+.btn-import:hover{opacity:.85}
+
+.drop-overlay{display:none;position:fixed;inset:0;z-index:999;background:rgba(13,17,23,.92);align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.drop-overlay.active{display:flex}
+.drop-box{border:2px dashed var(--accent);border-radius:12px;padding:48px 64px;text-align:center;pointer-events:none}
+.drop-box h2{font-family:var(--font);color:var(--accent);font-size:1.2rem;margin-bottom:4px}
+.drop-box p{color:var(--dim);font-size:.9rem}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--green);color:#000;padding:8px 20px;border-radius:6px;font-weight:700;font-size:.85rem;z-index:1000;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.err{background:var(--red);color:#fff}
+
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{background:var(--surface);color:var(--dim);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap;user-select:none}
+th.tc,td.tc{font-family:var(--font);text-align:center;white-space:nowrap}
+th.ctr,td.ctr{text-align:center}
+td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:middle;transition:background .15s}
+tr:hover td{background:rgba(45,125,210,.07)}
+tr.banner-row td{background:var(--surface2);font-weight:700;font-size:.9rem;padding:10px;color:var(--accent);letter-spacing:.02em;border-bottom:2px solid var(--accent)}
+tr.banner-int td{background:transparent;font-weight:400;font-size:.8rem;padding:6px 10px;color:var(--muted);letter-spacing:.04em;border-bottom:1px dashed var(--border);font-style:italic}
+tr.transition td{color:var(--muted);font-style:italic}
+tr.transition td.cue-cell{padding-left:6px}
+tr.main td.label-cell{font-weight:700}
+
+/* DRAG */
+.drag-handle{cursor:grab;color:var(--muted);font-size:1rem;user-select:none;padding:0 4px;display:inline-block}
+.drag-handle:hover{color:var(--accent)}
+tr.dragging td{opacity:.35;background:var(--surface2)}
+tr.drag-over-top td{border-top:2px solid var(--green)}
+tr.drag-over-bottom td{border-bottom:2px solid var(--green)}
+body.drag-mode-off .drag-handle{display:none}
+
+col.c-grab{width:30px}
+col.c-cue{width:55px}col.c-tc{width:100px}col.c-dur{width:95px}col.c-label{width:210px}
+col.c-trigger{width:95px}col.c-dept{width:65px}col.c-device{width:140px}
+col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-notes{min-width:150px}
+
+.status{display:inline-block;padding:2px 10px;border-radius:3px;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;min-width:64px;text-align:center}
+.status-live{background:var(--red);color:#fff;animation:pulse 1.5s ease-in-out infinite}
+.status-ready{background:var(--green);color:#fff}
+.status-standby{background:var(--amber);color:#000}
+.status-hold{background:var(--blue);color:#fff}
+.status-done{background:var(--muted);color:var(--dim)}
+.status-cut{background:#333;color:var(--muted);text-decoration:line-through}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+.dur{font-family:var(--font);font-weight:600;color:var(--purple)}
+.note{color:var(--dim);font-size:.8rem;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note:hover{white-space:normal;overflow:visible}
+
+.import-info{font-family:var(--font);font-size:.75rem;color:var(--dim);padding:4px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:none}
+.import-info span{color:var(--green)}
+.modified-flag{color:var(--amber)!important;font-weight:700}
+
+@media(max-width:768px){.header{padding:8px 12px}.clock{font-size:1.2rem}.meta-bar,.filters{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
+@media print{.top-bar{position:static}.clock,.filter-count,.btn-sm,.btn-import,.import-info,.drag-handle{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
+</style>
+</head>
+<body>
+
+<div class="drop-overlay" id="dropOverlay">
+  <div class="drop-box"><h2>DROP .XLSX</h2><p>Release to import cue sheet</p></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<div class="top-bar" id="topBar">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">TC CUE SHEET <span>v2.0</span></div>
+    </div>
+    <div>
+      <div class="clock-label">Local Time</div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </div>
+  <div class="meta-bar" id="metaBar">
+    <span><b>Show:</b> <span contenteditable="true" id="mShow">—</span></span>
+    <span><b>Venue:</b> <span contenteditable="true" id="mVenue">—</span></span>
+    <span><b>Programmer:</b> <span contenteditable="true" id="mProg">—</span></span>
+    <span><b>Master:</b> <span id="mMaster">Q-SYS Core</span></span>
+    <span><b>TC Source:</b> <span id="mTC">LTC</span></span>
+    <span><b>FPS:</b> <span id="mFPS">30</span></span>
+  </div>
+  <div class="filters">
+    <button class="btn-import" onclick="document.getElementById('fileIn').click()">⬆ Import XLSX</button>
+    <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none">
+    <button class="btn-sm" id="reorderToggle" onclick="toggleReorder()">↕ Reorder: ON</button>
+    <button class="btn-sm" onclick="undoOrder()" title="Undo last move">⎌ Undo</button>
+    <span style="color:var(--muted)">|</span>
+    <label>Act</label>
+    <select id="fAct"><option value="">All</option><option value="1">Act 1</option><option value="2">Act 2</option></select>
+    <label>Dept</label>
+    <select id="fDept"><option value="">All</option><option>Sound</option><option>LX</option><option>Video</option><option>Band</option></select>
+    <label>Status</label>
+    <select id="fStatus"><option value="">All</option><option>Standby</option><option>Ready</option><option>Live</option><option>Done</option><option>Hold</option><option>Cut</option></select>
+    <label>Scene</label>
+    <select id="fScene"><option value="">All</option></select>
+    <label>Search</label>
+    <input type="text" id="fSearch" placeholder="filter…" size="12">
+    <button class="btn-sm" onclick="resetFilters()">Reset</button>
+    <div class="filter-count" id="count"></div>
+  </div>
+  <div class="import-info" id="importInfo">Loaded: <span id="importFile">—</span> · Imported: <span id="importTime">—</span> · File last modified: <span id="importMod">—</span><span id="orderFlag"></span></div>
+</div>
+
+<div style="overflow-x:auto;padding:0 0 40px">
+<table>
+<colgroup>
+  <col class="c-grab"><col class="c-cue"><col class="c-tc"><col class="c-tc"><col class="c-dur"><col class="c-label">
+  <col class="c-trigger"><col class="c-dept"><col class="c-device"><col class="c-action">
+  <col class="c-fade"><col class="c-status"><col class="c-notes">
+</colgroup>
+<thead><tr>
+  <th></th>
+  <th class="ctr">Cue</th><th class="tc">TC In</th><th class="tc">TC Out</th><th class="tc">Dur</th>
+  <th>Label / Scene</th><th>Trigger</th><th class="ctr">Dept</th><th>Device</th>
+  <th>Action / Command</th><th class="ctr">Fade</th><th class="ctr">Status</th><th>Notes</th>
+</tr></thead>
+<tbody id="tbody"></tbody>
+</table>
+</div>
+
+<script>
+/* =========================================================
+   CORE
+   ========================================================= */
+let cues=[];
+let orderModified=false;
+let undoStack=[];
+const FPS=30;
+const ACT_ANCHOR={1:3360,2:3600}; // Act1 00:56:00:00, Act2 01:00:00:00
+
+function tc2(sec){if(sec==null)return'';const hh=Math.floor(sec/3600),mm=Math.floor((sec%3600)/60),ss=Math.floor(sec%60),ff=Math.round((sec%1)*FPS);return[hh,mm,ss,ff].map(v=>String(v).padStart(2,'0')).join(':')}
+function hms(t){const p=t.split(':').map(Number);return p[0]*3600+p[1]*60+(p[2]||0)}
+function tcToSec(t){if(!t)return null;const p=t.split(':').map(Number);if(p.length<3)return null;return p[0]*3600+p[1]*60+p[2]+(p[3]||0)/FPS}
+
+/* ---- defaults ---- */
+function loadDefaults(){
+  cues=[];orderModified=false;undoStack=[];
+  function add(act,kind,cue,label,ts,te,note){
+    const durSec=(ts!=null&&te!=null)?hms(te)-hms(ts):null;
+    cues.push({act,kind,cue,label,durSec,trigger:durSec!=null?'TC Chase':'GO',dept:'',device:'',action:'',fade:'',status:'Standby',note:note||'',tcIn:'',tcOut:'',dur:''})}
+  function ban(act,sub,text){if(!text){text=sub;sub='act'}cues.push({act,kind:'banner',sub,label:text})}
+  ban(1,'ACT 1  ·  Ouverture @ 01:00:00:00');
+  add(1,'sub','0','Preshow (Animation)',null,null,'20:00 pre-roll, no TC');
+  add(1,'sub','0.1','Prologue','0:00:00','0:04:00','Parade');
+  add(1,'main','1','Ouverture (Opening)','0:04:00','0:10:00','Choreo ~3:00');
+  add(1,'trans','1.1','Transition','0:10:00','0:11:00','');
+  add(1,'main','2','Trio Cerceau','0:11:00','0:16:00','');
+  add(1,'trans','2.1','Transition','0:16:00','0:18:00','');
+  add(1,'main','3','Juggling','0:18:00','0:24:00','');
+  add(1,'trans','3.1','Transition','0:24:00','0:25:00','');
+  add(1,'main','4','Duo Clown','0:25:00','0:31:00','');
+  add(1,'trans','4.1','Transition','0:31:00','0:32:00','Platform descend');
+  add(1,'main','5','Aerial Platform','0:32:00','0:37:00','Body mapping');
+  add(1,'trans','5.1','Transition','0:37:00','0:39:00','Moment on the roof');
+  add(1,'main','6','Icarian / Teeter Board','0:39:00','0:45:30','');
+  add(1,'sub','6.1','Inflatables','0:45:30','0:46:00','');
+  ban(0,'intermission','INTERMISSION — 0:25:00  ·  last 5 min: audience through the house');
+  ban(2,'ACT 2');
+  add(2,'sub','6.2','Intro','0:00:00','0:01:00','Masts climbing');
+  add(2,'main','7','Aerial Ballet','0:01:00','0:07:30','');
+  add(2,'trans','7.1','Transition','0:07:30','0:08:30','');
+  add(2,'main','8','Duo Clown (Cadavre Exquis)','0:08:30','0:15:30','');
+  add(2,'trans','8.1','Transition','0:15:30','0:17:00','Marbles set-up & platform IN');
+  add(2,'main','9','Rola Bola','0:17:00','0:23:30','');
+  add(2,'trans','9.1','Transition (Twins loop)','0:23:30','0:26:00','Platform OUT');
+  add(2,'sub','9.2','Intro TGR','0:26:00','0:27:00','');
+  add(2,'main','10','Ginger Rope','0:27:00','0:33:00','');
+  add(2,'trans','10.1','Transition','0:33:00','0:34:00','');
+  add(2,'sub','10.2','Tournik set-up','0:34:00','0:37:00','');
+  add(2,'main','11','Rotating Tournik','0:37:00','0:44:30','');
+  add(2,'sub','12','Bows (Inflatables + Bows)','0:44:30','0:47:30','');
+  recalcTC();
+}
+
+/* =========================================================
+   RIPPLE RECALC — chain TC from each act anchor
+   ========================================================= */
+function recalcTC(){
+  let currentAct=null,pointer=null;
+  for(const c of cues){
+    if(c.kind==='banner'){
+      if(c.sub!=='intermission'&&c.act){currentAct=c.act;pointer=ACT_ANCHOR[c.act]??null}
+      continue}
+    c.act=currentAct??c.act;
+    if(c.durSec==null){c.tcIn='';c.tcOut='';c.dur='';continue}
+    if(pointer==null)pointer=ACT_ANCHOR[c.act]??0;
+    c.tcIn=tc2(pointer);
+    c.tcOut=tc2(pointer+c.durSec);
+    c.dur=tc2(c.durSec);
+    pointer+=c.durSec;
+  }
+  /* update banner labels with computed ranges */
+  for(const b of cues.filter(x=>x.kind==='banner'&&x.sub!=='intermission')){
+    const actCues=cues.filter(x=>x.kind!=='banner'&&x.act===b.act&&x.tcIn);
+    if(actCues.length){
+      const first=actCues[0].tcIn,last=actCues[actCues.length-1].tcOut;
+      b.label=b.label.replace(/\s*·\s*TC .*$/,'');
+      b.label+=`  ·  TC ${first} → ${last}`;
+    }
+  }
+}
+
+/* =========================================================
+   RENDER
+   ========================================================= */
+const tbody=document.getElementById('tbody');
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function statusClass(s){return'status-'+(s||'').toLowerCase().replace(/\s/g,'')}
+let reorderOn=true;
+
+function render(){
+  const fa=document.getElementById('fAct').value,fd=document.getElementById('fDept').value.toLowerCase(),
+    fs=document.getElementById('fStatus').value.toLowerCase(),fsc=document.getElementById('fScene').value,
+    q=document.getElementById('fSearch').value.toLowerCase();
+  const filtering=fa||fd||fs||fsc||q;
+  let html='',shown=0,total=0;
+  cues.forEach((c,idx)=>{
+    if(c.kind==='banner'){
+      if(fa&&c.act&&String(c.act)!==fa)return;
+      const bcls=c.sub==='intermission'?'banner-int':'banner-row';
+      html+=`<tr class="${bcls}" data-idx="${idx}"><td colspan="13">${esc(c.label)}</td></tr>`;return}
+    total++;
+    if(fa&&String(c.act)!==fa)return;
+    if(fd&&(c.dept||'').toLowerCase()!==fd)return;
+    if(fs&&(c.status||'').toLowerCase()!==fs)return;
+    if(fsc&&c.label!==fsc)return;
+    if(q){if(!Object.values(c).join(' ').toLowerCase().includes(q))return}
+    shown++;
+    const cls=c.kind==='trans'?'transition':c.kind==='main'?'main':'';
+    const cd=c.kind==='trans'?'↳ '+c.cue:c.cue;
+    const grab=(reorderOn&&!filtering)?`<span class="drag-handle" draggable="true">⠿</span>`:'';
+    html+=`<tr class="${cls}" data-idx="${idx}">
+      <td class="ctr">${grab}</td>
+      <td class="ctr cue-cell">${esc(cd)}</td><td class="tc">${c.tcIn}</td><td class="tc">${c.tcOut}</td>
+      <td class="tc dur">${c.dur}</td><td class="label-cell">${esc(c.label)}</td><td>${esc(c.trigger)}</td>
+      <td class="ctr">${esc(c.dept)}</td><td>${esc(c.device)}</td><td>${esc(c.action)}</td>
+      <td class="ctr">${esc(c.fade)}</td>
+      <td class="ctr"><span class="status ${statusClass(c.status)}">${esc(c.status)}</span></td>
+      <td class="note" title="${esc(c.note)}">${esc(c.note)}</td></tr>`});
+  tbody.innerHTML=html;
+  document.getElementById('count').textContent=`${shown} / ${total} cues`+(filtering&&reorderOn?' · clear filters to reorder':'');
+  document.getElementById('orderFlag').innerHTML=orderModified?' · <span class="modified-flag">ORDER MODIFIED — re-export to xlsx needed</span>':'';
+  if(orderModified)document.getElementById('importInfo').style.display='block';
+  bindDrag();
+}
+function resetFilters(){['fAct','fDept','fStatus','fScene'].forEach(id=>document.getElementById(id).value='');document.getElementById('fSearch').value='';render()}
+document.querySelectorAll('.filters select, .filters input[type="text"]').forEach(el=>el.addEventListener(el.tagName==='INPUT'?'input':'change',render));
+
+function rebuildSceneDropdown(){
+  const sel=document.getElementById('fScene'),val=sel.value;
+  sel.innerHTML='<option value="">All</option>';
+  [...new Set(cues.filter(c=>c.kind!=='banner').map(c=>c.label))].forEach(s=>{
+    const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o)});
+  sel.value=val;
+}
+function rebuildDeptDropdown(){
+  const sel=document.getElementById('fDept'),val=sel.value;
+  const depts=[...new Set(cues.filter(c=>c.kind!=='banner'&&c.dept).map(c=>c.dept))];
+  const all=[...new Set(['Sound','LX','Video','Band',...depts])];
+  sel.innerHTML='<option value="">All</option>';
+  all.forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;sel.appendChild(o)});
+  sel.value=val;
+}
+
+/* =========================================================
+   DRAG & DROP REORDER (ripple)
+   ========================================================= */
+let dragIdx=null;
+function toggleReorder(){reorderOn=!reorderOn;document.getElementById('reorderToggle').textContent='↕ Reorder: '+(reorderOn?'ON':'OFF');render()}
+function undoOrder(){
+  if(!undoStack.length){toast('Nothing to undo',true);return}
+  cues=undoStack.pop();recalcTC();rebuildSceneDropdown();render();toast('Order restored')}
+
+function bindDrag(){
+  tbody.querySelectorAll('.drag-handle').forEach(h=>{
+    h.addEventListener('dragstart',e=>{
+      const tr=h.closest('tr');dragIdx=+tr.dataset.idx;tr.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain','')});
+    h.addEventListener('dragend',()=>{
+      tbody.querySelectorAll('tr').forEach(t=>t.classList.remove('dragging','drag-over-top','drag-over-bottom'));dragIdx=null});
+  });
+  tbody.querySelectorAll('tr').forEach(tr=>{
+    tr.addEventListener('dragover',e=>{
+      if(dragIdx==null)return;e.preventDefault();
+      const rect=tr.getBoundingClientRect(),below=e.clientY>rect.top+rect.height/2;
+      tbody.querySelectorAll('tr').forEach(t=>t.classList.remove('drag-over-top','drag-over-bottom'));
+      tr.classList.add(below?'drag-over-bottom':'drag-over-top')});
+    tr.addEventListener('drop',e=>{
+      if(dragIdx==null)return;e.preventDefault();
+      const targetIdx=+tr.dataset.idx;
+      const rect=tr.getBoundingClientRect(),below=e.clientY>rect.top+rect.height/2;
+      moveCue(dragIdx,targetIdx,below);
+      dragIdx=null});
+  });
+}
+
+function moveCue(from,target,after){
+  if(from===target)return;
+  undoStack.push(JSON.parse(JSON.stringify(cues)));
+  if(undoStack.length>20)undoStack.shift();
+  const item=cues[from];
+  let insertAt=target+(after?1:0);
+  cues.splice(from,1);
+  if(from<insertAt)insertAt--;
+  /* can't insert before the first banner */
+  if(insertAt===0)insertAt=1;
+  cues.splice(insertAt,0,item);
+  orderModified=true;
+  recalcTC();
+  render();
+  toast(`Moved "${item.label}" — TC rippled`);
+}
+
+/* =========================================================
+   XLSX IMPORT
+   ========================================================= */
+function toast(msg,err){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(err?' err':'');setTimeout(()=>t.className='toast',3000)}
+
+function importXLSX(file){
+  if(!window.XLSX){toast('SheetJS not loaded — download xlsx.full.min.js to serve locally',true);return}
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const wsName=wb.SheetNames.find(n=>/cue/i.test(n))||wb.SheetNames[0];
+      const ws=wb.Sheets[wsName];
+      if(!ws){toast('No sheet found',true);return}
+      const v=(ref)=>{const c=ws[ref];return c?String(c.v||'').trim():''};
+      const show=v('B2'),venue=v('B3'),prog=v('B4'),master=v('B5'),tcsrc=v('H3'),fps=v('H4');
+      if(show)document.getElementById('mShow').textContent=show;
+      if(venue)document.getElementById('mVenue').textContent=venue;
+      if(prog)document.getElementById('mProg').textContent=prog;
+      if(master)document.getElementById('mMaster').textContent=master;
+      if(tcsrc)document.getElementById('mTC').textContent=tcsrc;
+      if(fps)document.getElementById('mFPS').textContent=fps;
+
+      const range=XLSX.utils.decode_range(ws['!ref']);
+      let hrow=-1;
+      for(let r=0;r<=Math.min(range.e.r,15);r++){
+        const c=ws[XLSX.utils.encode_cell({r,c:0})];
+        if(c&&/^cue$/i.test(String(c.v||'').trim())){hrow=r;break}}
+      if(hrow<0){toast('Header row "Cue" not found',true);return}
+
+      const newCues=[];let currentAct=1;
+      const merges=ws['!merges']||[];
+      const mergedRows=new Set(merges.filter(m=>m.e.c-m.s.c>=6).map(m=>m.s.r));
+      for(let r=hrow+1;r<=range.e.r;r++){
+        const cell=(col)=>{const c=ws[XLSX.utils.encode_cell({r,c:col})];return c?(typeof c.v==='number'?String(c.v):String(c.v||'').trim()):''};
+        const a=cell(0),b=cell(1),c_=cell(2),d=cell(3),e_=cell(4),f=cell(5),g=cell(6),h=cell(7),i_=cell(8),k=cell(10),l=cell(11),m=cell(12);
+        const isMerged=mergedRows.has(r);
+        const bannerText=a||e_;
+        if(isMerged||((!b)&&(!c_)&&(!e_)&&bannerText&&/^(ACT|INTER)/i.test(bannerText))){
+          if(/ACT\s*1/i.test(bannerText))currentAct=1;
+          else if(/ACT\s*2/i.test(bannerText))currentAct=2;
+          const sub=/INTER/i.test(bannerText)?'intermission':'act';
+          newCues.push({act:/INTER/i.test(bannerText)?0:currentAct,kind:'banner',sub,label:bannerText});
+          continue}
+        if(!a&&!b&&!e_)continue;
+        const cueStr=a.replace(/^↳\s*/,'');
+        let kind='sub';
+        if(/transition/i.test(e_||''))kind='trans';
+        else if(/^\d+$/.test(cueStr)&&parseInt(cueStr)>=1)kind='main';
+        /* durSec from Dur col, else from TC in/out */
+        let durSec=null;
+        if(d){const s=tcToSec(d);if(s!=null)durSec=s}
+        else{const si=tcToSec(b),so=tcToSec(c_);if(si!=null&&so!=null)durSec=so-si}
+        newCues.push({act:currentAct,kind,cue:cueStr,label:e_,durSec,
+          trigger:f||'GO',dept:g,device:h,action:i_,fade:k,status:l||'Standby',note:m,tcIn:b,tcOut:c_,dur:d});
+      }
+      cues=newCues;orderModified=false;undoStack=[];
+      recalcTC();
+      rebuildSceneDropdown();rebuildDeptDropdown();resetFilters();render();
+      const info=document.getElementById('importInfo');info.style.display='block';
+      document.getElementById('importFile').textContent=file.name;
+      document.getElementById('importTime').textContent=new Date().toLocaleTimeString();
+      const mod=file.lastModified?new Date(file.lastModified):null;
+      document.getElementById('importMod').textContent=mod?mod.toLocaleString():'unknown';
+      toast(`Imported ${cues.filter(c=>c.kind!=='banner').length} cues from ${file.name}`);
+    }catch(err){toast('Parse error: '+err.message,true);console.error(err)}
+  };
+  reader.readAsArrayBuffer(file);
+}
+document.getElementById('fileIn').addEventListener('change',function(e){
+  if(e.target.files[0])importXLSX(e.target.files[0]);e.target.value=''});
+
+let dragCount=0;
+const overlay=document.getElementById('dropOverlay');
+document.addEventListener('dragenter',e=>{
+  if(dragIdx!=null)return; /* internal row drag — skip overlay */
+  if(![...e.dataTransfer.types].includes('Files'))return;
+  e.preventDefault();dragCount++;overlay.classList.add('active')});
+document.addEventListener('dragleave',e=>{if(dragIdx!=null)return;e.preventDefault();dragCount--;if(dragCount<=0){dragCount=0;overlay.classList.remove('active')}});
+document.addEventListener('dragover',e=>e.preventDefault());
+document.addEventListener('drop',e=>{
+  if(dragIdx!=null)return;
+  e.preventDefault();dragCount=0;overlay.classList.remove('active');
+  const f=[...(e.dataTransfer.files||[])].find(f=>/\.xlsx?$/i.test(f.name));
+  if(f)importXLSX(f)});
+
+/* =========================================================
+   INIT + CLOCK
+   ========================================================= */
+loadDefaults();
+rebuildSceneDropdown();
+render();
+function tick(){const d=new Date();document.getElementById('clock').textContent=[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':')}
+tick();setInterval(tick,1000);
+</script>
+</body>
+</html>
