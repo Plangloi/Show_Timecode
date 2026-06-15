@@ -169,6 +169,9 @@ col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-not
     <button class="btn-sm" onclick="nudge(-1)" title="-1s">−1s</button>
     <button class="btn-sm" onclick="nudge(1)" title="+1s">+1s</button>
     <button class="btn-sm active" id="followBtn" onclick="toggleFollow()">⌖ Follow</button>
+    <label title="TC color">🎨</label>
+    <input type="color" id="tcColor" value="#d29922" oninput="setTcColor(this.value)" style="width:32px;height:28px;padding:2px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:pointer">
+    <button class="btn-sm" onclick="resetTcColor()" title="Auto color by source">Auto</button>
     <span style="color:var(--muted)">|</span>
     <label><span class="ws-dot" id="srcDot"></span>Source</label>
     <select id="tcProto" onchange="protoChanged()">
@@ -406,6 +409,20 @@ function nudge(d){
     document.getElementById('tcInput').value=tc2(cur+d)}
 }
 function toggleFollow(){chase.follow=!chase.follow;document.getElementById('followBtn').classList.toggle('active',chase.follow)}
+
+/* ---- TC color override ---- */
+let tcColorManual=null;
+function setTcColor(hex){
+  tcColorManual=hex;
+  const el=document.getElementById('showTC');
+  el.style.color=hex;
+  el.style.textShadow=`0 0 28px ${hex}59`;   /* 59 = ~35% alpha */
+}
+function resetTcColor(){
+  tcColorManual=null;
+  const el=document.getElementById('showTC');
+  el.style.color='';el.style.textShadow='';   /* revert to CSS class-based color */
+}
 
 /* ---- WebSocket TC source ---- */
 function toggleWS(){
