@@ -138,7 +138,7 @@ col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-not
 <div class="top-bar" id="topBar">
   <div class="header">
     <div class="header-left">
-      <div class="logo">TC CUE SHEET <span>v3.0</span></div>
+      <div class="logo">TC CUE SHEET <span>v4.0</span></div>
     </div>
     <div class="clock-block">
       <div class="clock-label">Local Time</div>
@@ -157,7 +157,7 @@ col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-not
     <span><b>Show:</b> <span contenteditable="true" id="mShow">—</span></span>
     <span><b>Venue:</b> <span contenteditable="true" id="mVenue">—</span></span>
     <span><b>Programmer:</b> <span contenteditable="true" id="mProg">—</span></span>
-    <span><b>Master:</b> <span id="mMaster">Q-SYS Core</span></span>
+    <span><b>Master:</b> <span id="mMaster">Live</span></span>
     <span><b>TC Source:</b> <span id="mTC">LTC</span></span>
     <span><b>FPS:</b> <span id="mFPS">30</span></span>
   </div>
@@ -195,6 +195,8 @@ col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-not
     <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none">
     <button class="btn-sm" id="reorderToggle" onclick="toggleReorder()">↕ Reorder: ON</button>
     <button class="btn-sm" onclick="undoOrder()" title="Undo last move">⎌ Undo</button>
+    <button class="btn-sm" onclick="clearSaved()" title="Clear saved state & reload defaults">🗑 Clear saved</button>
+    <span id="saveStamp" style="font-family:var(--font);font-size:.72rem;color:var(--green)"></span>
     <span style="color:var(--muted)">|</span>
     <label>Act</label>
     <select id="fAct"><option value="">All</option><option value="1">Act 1</option><option value="2">Act 2</option></select>
@@ -280,6 +282,48 @@ function loadDefaults(){
   add(2,'main','11','Rotating Tournik','0:37:00','0:44:30','');
   add(2,'sub','12','Bows (Inflatables + Bows)','0:44:30','0:47:30','');
   recalcTC();
+}
+
+/* =========================================================
+   PERSISTENCE — localStorage (per-browser, survives reload)
+   ========================================================= */
+const LS_KEY='tc_cuesheet_v3';
+let saveTimer=null;
+function saveState(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    try{
+      const meta={};['mShow','mVenue','mProg','mMaster','mTC','mFPS'].forEach(id=>meta[id]=document.getElementById(id).textContent);
+      localStorage.setItem(LS_KEY,JSON.stringify({
+        v:3,cues,orderModified,tcColor:tcColorManual,meta,
+        savedAt:new Date().toISOString()}));
+      const el=document.getElementById('saveStamp');
+      if(el)el.textContent='saved '+new Date().toLocaleTimeString();
+    }catch(e){console.warn('save failed',e)}
+  },300);
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem(LS_KEY);
+    if(!raw)return false;
+    const st=JSON.parse(raw);
+    if(!st.cues||!st.cues.length)return false;
+    cues=st.cues;orderModified=!!st.orderModified;
+    recalcTC();
+    if(st.meta)Object.entries(st.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val)e.textContent=val});
+    if(st.tcColor)setTcColor(st.tcColor);
+    const el=document.getElementById('saveStamp');
+    if(el&&st.savedAt)el.textContent='restored from '+new Date(st.savedAt).toLocaleString();
+    return true;
+  }catch(e){console.warn('load failed',e);return false}
+}
+function clearSaved(){
+  try{localStorage.removeItem(LS_KEY)}catch(e){}
+  loadDefaults();resetTcColor();
+  ['mShow','mVenue','mProg'].forEach(id=>document.getElementById(id).textContent='—');
+  rebuildSceneDropdown();render();
+  const el=document.getElementById('saveStamp');if(el)el.textContent='cleared — defaults loaded';
+  toast('Saved state cleared');
 }
 
 function recalcTC(){
@@ -417,11 +461,13 @@ function setTcColor(hex){
   const el=document.getElementById('showTC');
   el.style.color=hex;
   el.style.textShadow=`0 0 28px ${hex}59`;   /* 59 = ~35% alpha */
+  saveState();
 }
 function resetTcColor(){
   tcColorManual=null;
   const el=document.getElementById('showTC');
   el.style.color='';el.style.textShadow='';   /* revert to CSS class-based color */
+  saveState();
 }
 
 /* ---- WebSocket TC source ---- */
@@ -570,7 +616,7 @@ let dragIdx=null;
 function toggleReorder(){reorderOn=!reorderOn;document.getElementById('reorderToggle').textContent='↕ Reorder: '+(reorderOn?'ON':'OFF');render()}
 function undoOrder(){
   if(!undoStack.length){toast('Nothing to undo',true);return}
-  cues=undoStack.pop();recalcTC();rebuildSceneDropdown();render();toast('Order restored')}
+  cues=undoStack.pop();recalcTC();rebuildSceneDropdown();render();toast('Order restored');saveState()}
 function bindDrag(){
   tbody.querySelectorAll('.drag-handle').forEach(h=>{
     h.addEventListener('dragstart',e=>{
@@ -604,6 +650,7 @@ function moveCue(from,target,after){
   cues.splice(insertAt,0,item);
   orderModified=true;recalcTC();render();
   toast(`Moved "${item.label}" — TC rippled`);
+  saveState();
 }
 
 /* =========================================================
@@ -666,6 +713,7 @@ function importXLSX(file){
       const mod=file.lastModified?new Date(file.lastModified):null;
       document.getElementById('importMod').textContent=mod?mod.toLocaleString():'unknown';
       toast(`Imported ${cues.filter(c=>c.kind!=='banner').length} cues from ${file.name}`);
+      saveState();
     }catch(err){toast('Parse error: '+err.message,true);console.error(err)}
   };
   reader.readAsArrayBuffer(file);
@@ -733,6 +781,9 @@ function exportXLSX(){
    INIT + CLOCK
    ========================================================= */
 loadDefaults();
+loadState();                 /* override with persisted state if present */
+['mShow','mVenue','mProg','mMaster','mTC','mFPS'].forEach(id=>
+  document.getElementById(id).addEventListener('blur',saveState));
 rebuildSceneDropdown();
 render();
 function tick(){const d=new Date();document.getElementById('clock').textContent=[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':')}
