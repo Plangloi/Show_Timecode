@@ -1,6 +1,106 @@
 # Show_Timecode
 Show time code tracking
 
+---
+
+# 🎬 Quick Start — Running the Show (Zero Tech Experience Needed)
+
+This section is for anyone running the cue sheet who's never touched Docker, Terminal, or MIDI before. Just follow the steps in order, top to bottom. 🙂
+
+> 💡 This walkthrough assumes the show computer is already set up the way iPat configured it (Horae routed to IAC, the auto-start relay service installed). You're just turning things on, not building them.
+
+## ✅ Before the show — one-time checklist
+
+- [ ] 🐳 **Docker Desktop** is installed on this Mac
+- [ ] 🎼 **Horae** is installed
+- [ ] ⚙️ The **auto-start relay service** has been set up once by iPat (you won't need to touch Terminal for this — it starts itself)
+
+If all three are already true, skip straight to "Show day" below. 👇
+
+---
+
+## 🎭 Show Day — Step by Step
+
+### 1️⃣ Start Docker Desktop
+
+Click the Docker whale icon 🐳 in your Applications folder (or menu bar if it's already running). Wait until the icon in the top menu bar stops animating — that means it's ready.
+
+### 2️⃣ Start the cue sheet website
+
+Open **Terminal**, paste this one line, press Enter:
+
+```bash
+cd ~/Documents/Git/Show_Timecode && docker compose up -d cuesheet
+```
+
+> ⚠️ Only start `cuesheet` here — **not** `relay`. The timecode relay for this show runs a different way (see step 3), and starting both at once will fight over the same connection.
+
+### 3️⃣ Open Horae and get it talking
+
+1. Open **Horae** 🎼
+2. Make sure **`IAC Driver Bus 1`** has a ✅ checkmark in the MTC Destination list on the right
+3. Press ▶️ **Play** on the timecode generator
+
+### 4️⃣ Check the relay is running
+
+It should already be running quietly in the background (it auto-starts when you log in). To double check:
+
+```bash
+launchctl list | grep tc-relay
+```
+
+If you see a line printed back, ✅ you're good — skip to step 5.
+
+If you see **nothing printed**, start it manually:
+
+```bash
+cd ~/Documents/Git/Show_Timecode
+uv run --with websockets --with python-rtmidi python3 qsys_tc_relay.py --mtc "IAC"
+```
+
+Leave that Terminal window open in the background while the show runs.
+
+### 5️⃣ Open the cue sheet
+
+In your web browser, go to:
+
+```
+http://localhost:8080
+```
+
+*(Someone viewing from a different laptop/tablet on the same WiFi? Use the show computer's network address instead of `localhost` — ask iPat for that number if you don't have it.)*
+
+### 6️⃣ Connect it to the timecode
+
+At the top of the cue sheet, in the **Chase** bar:
+
+1. Find the **Source** dropdown → choose **WebSocket**
+2. In the box that appears, type: `ws://localhost:8765`
+3. Click **Connect**
+
+### 7️⃣ You're live! 🎉
+
+- The big clock at the top should turn **🔵 blue** and start counting, matching Horae's numbers
+- As each cue's moment arrives, its **Status** turns **🟢 green "Running"** automatically, then back to **🟡 Standby** when it's done
+
+That's it — you're ready for the show. 🎬✨
+
+---
+
+## 🆘 Something's not working?
+
+| What you see | What it means | What to do |
+|---|---|---|
+| Cue sheet page won't load at all | Docker isn't running | Go back to Step 1 🐳 |
+| Clock stays gray, says `--:--:--:--` | Not connected yet | Redo Step 6 — check you typed `ws://localhost:8765` exactly |
+| Clock is blue but numbers aren't moving | Horae isn't sending timecode | In Horae: is ▶️ Play actually pressed? Is `IAC Driver Bus 1` checked? |
+| `launchctl list \| grep tc-relay` shows nothing, and manual start doesn't help either | Ask iPat — this needs the one-time setup checked | 📞 |
+| Cues never turn green even though the clock is moving | Wrong Act selected | Check the **Act** dropdown next to the ▶️ START button matches the act actually playing |
+
+When in doubt: close the browser tab, reopen `http://localhost:8080`, and redo Steps 5–6. That fixes almost everything. 🔄
+
+---
+
 # qsys_tc_relay.py — Timecode WebSocket Relay
 
 Bridges **MIDI Time Code (MTC)**, **Q-SYS QRC**, or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
