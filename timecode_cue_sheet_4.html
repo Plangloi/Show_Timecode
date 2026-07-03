@@ -102,19 +102,39 @@ tr.dragging td{opacity:.35;background:var(--surface2)}
 tr.drag-over-top td{border-top:2px solid var(--green)}
 tr.drag-over-bottom td{border-bottom:2px solid var(--green)}
 
-col.c-grab{width:30px}
+col.c-grab{width:82px}
 col.c-cue{width:55px}col.c-tc{width:100px}col.c-dur{width:95px}col.c-label{width:210px}
 col.c-trigger{width:95px}col.c-dept{width:65px}col.c-device{width:140px}
 col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-notes{min-width:150px}
 
-.status{display:inline-block;padding:2px 10px;border-radius:3px;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;min-width:64px;text-align:center}
-.status-live{background:var(--red);color:#fff;animation:pulse 1.5s ease-in-out infinite}
-.status-ready{background:var(--green);color:#fff}
+.status{display:inline-block;padding:2px 10px;border-radius:3px;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;min-width:64px;text-align:center;border:none;cursor:pointer;font-family:inherit;-webkit-appearance:none;appearance:none}
+.status-live{background:var(--green);color:#000;animation:pulse 1.5s ease-in-out infinite}
+.status-ready{background:var(--blue);color:#fff}
 .status-standby{background:var(--amber);color:#000}
-.status-hold{background:var(--blue);color:#fff}
+.status-hold{background:var(--purple);color:#fff}
 .status-done{background:var(--muted);color:var(--dim)}
 .status-cut{background:#333;color:var(--muted);text-decoration:line-through}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* auto-driven "currently playing" chip — separate from the manual Status
+   select above, never overwrites it. Lit by the chase engine only. */
+.live-chip{display:inline-flex;align-items:center;background:var(--green);color:#000;
+  padding:1px 7px;border-radius:3px;font-size:.62rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.05em;margin-left:5px;animation:pulse 1.1s ease-in-out infinite;white-space:nowrap}
+
+/* per-row insert/delete — hover-reveal to keep the sheet dense/scannable */
+.row-actions{display:inline-flex;gap:2px;opacity:0;transition:opacity .12s;vertical-align:middle;margin-left:2px}
+tr:hover .row-actions{opacity:1}
+.row-btn{background:none;border:1px solid var(--border);color:var(--dim);border-radius:3px;
+  width:17px;height:17px;line-height:1;font-size:.72rem;cursor:pointer;padding:0}
+.row-btn:hover{color:var(--text);border-color:var(--accent)}
+.row-btn.del:hover{color:var(--red);border-color:var(--red)}
+
+/* inline-editable cells */
+[contenteditable="true"]{outline:none;cursor:text;border-radius:2px;display:inline-block;min-width:8px}
+[contenteditable="true"]:hover{background:rgba(88,166,255,.08)}
+[contenteditable="true"]:focus{background:rgba(88,166,255,.15);box-shadow:0 0 0 1px var(--accent)}
+[contenteditable="true"]:empty:before{content:attr(data-ph);color:var(--muted);font-style:italic}
 
 .dur{font-family:var(--font);font-weight:600;color:var(--purple)}
 .note{color:var(--dim);font-size:.8rem;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -193,6 +213,7 @@ col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-not
     <button class="btn-import" onclick="document.getElementById('fileIn').click()">⬆ Import XLSX</button>
     <button class="btn-import" style="background:var(--green);border-color:var(--green);color:#000" onclick="exportXLSX()">⬇ Export XLSX</button>
     <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none">
+    <button class="btn-sm" style="color:var(--green);border-color:var(--green)" onclick="addCueGlobal()" title="Add a new cue at the end of the current act">＋ Add Cue</button>
     <button class="btn-sm" id="reorderToggle" onclick="toggleReorder()">↕ Reorder: ON</button>
     <button class="btn-sm" onclick="undoOrder()" title="Undo last move">⎌ Undo</button>
     <button class="btn-sm" onclick="clearSaved()" title="Clear saved state & reload defaults">🗑 Clear saved</button>
@@ -375,21 +396,30 @@ function render(){
     if(q){if(!Object.values(c).join(' ').toLowerCase().includes(q))return}
     shown++;
     const cls=c.kind==='trans'?'transition':c.kind==='main'?'main':'';
-    const cd=c.kind==='trans'?'↳ '+c.cue:c.cue;
     const grab=(reorderOn&&!filtering)?`<span class="drag-handle" draggable="true">⠿</span>`:'';
+    const rowActions=filtering?'':`<span class="row-actions">
+      <button class="row-btn" title="Insert cue after" onclick="addCueAfter(${idx})">＋</button>
+      <button class="row-btn del" title="Delete cue" onclick="deleteCue(${idx})">✕</button></span>`;
+    const ed=(field,ph)=>`<span contenteditable="true" data-idx="${idx}" data-field="${field}" data-ph="${ph}">${esc(c[field])}</span>`;
     html+=`<tr class="${cls}" data-idx="${idx}">
-      <td class="ctr">${grab}</td>
-      <td class="ctr cue-cell">${esc(cd)}</td><td class="tc">${c.tcIn}</td><td class="tc">${c.tcOut}</td>
-      <td class="tc dur">${c.dur}</td><td class="label-cell">${esc(c.label)}<div class="cue-progress" style="width:0"></div></td><td>${esc(c.trigger)}</td>
-      <td class="ctr">${esc(c.dept)}</td><td>${esc(c.device)}</td><td>${esc(c.action)}</td>
-      <td class="ctr">${esc(c.fade)}</td>
-      <td class="ctr"><span class="status ${statusClass(c.status)}">${esc(c.status)}</span></td>
-      <td class="note" title="${esc(c.note)}">${esc(c.note)}</td></tr>`});
+      <td class="ctr">${grab}${rowActions}</td>
+      <td class="ctr cue-cell">${c.kind==='trans'?'↳ ':''}${ed('cue','#')}</td>
+      <td class="tc">${c.tcIn}</td><td class="tc">${c.tcOut}</td>
+      <td class="tc dur"><span contenteditable="true" data-idx="${idx}" data-field="durSec" data-ph="--:--:--:--">${c.dur}</span></td>
+      <td class="label-cell">${ed('label','Label / Scene')}<div class="cue-progress" style="width:0"></div></td>
+      <td>${ed('trigger','Trigger')}</td>
+      <td class="ctr">${ed('dept','Dept')}</td><td>${ed('device','Device')}</td><td>${ed('action','Action')}</td>
+      <td class="ctr">${ed('fade','Fade')}</td>
+      <td class="ctr status-cell" data-idx="${idx}"><select class="status ${statusClass(c.status)}" onchange="setStatus(${idx},this.value)">
+        ${['Standby','Ready','Live','Hold','Done','Cut'].map(s=>`<option value="${s}"${c.status===s?' selected':''}>${s}</option>`).join('')}
+      </select></td>
+      <td class="note" title="${esc(c.note)}">${ed('note','Notes…')}</td></tr>`});
   tbody.innerHTML=html;
   document.getElementById('count').textContent=`${shown} / ${total} cues`+(filtering&&reorderOn?' · clear filters to reorder':'');
   document.getElementById('orderFlag').innerHTML=orderModified?' · <span class="modified-flag">ORDER MODIFIED — re-export to xlsx needed</span>':'';
   if(orderModified)document.getElementById('importInfo').style.display='block';
   bindDrag();
+  bindEdits();
 }
 function resetFilters(){['fAct','fDept','fStatus','fScene'].forEach(id=>document.getElementById(id).value='');document.getElementById('fSearch').value='';render()}
 document.querySelectorAll('.filters select, .filters input[type="text"]').forEach(el=>el.addEventListener(el.tagName==='INPUT'?'input':'change',render));
@@ -585,7 +615,16 @@ function updateChaseUI(){
     chase.activeIdx=active?active.i:-1;
     if(active){
       const tr=tbody.querySelector(`tr[data-idx="${active.i}"]`);
-      if(tr){tr.classList.add('cue-active');
+      if(tr){
+        tr.classList.add('cue-active');
+        // Auto "currently playing" chip — driven purely by the chase engine,
+        // never touches the manually-set Status select next to it.
+        const statusCell=tr.querySelector('.status-cell');
+        if(statusCell&&!statusCell.querySelector('.live-chip')){
+          const chip=document.createElement('span');
+          chip.className='live-chip';chip.textContent='● LIVE';
+          statusCell.appendChild(chip);
+        }
         if(chase.follow)tr.scrollIntoView({block:'center',behavior:'smooth'})}
     }
   }
@@ -605,6 +644,7 @@ function updateChaseUI(){
 function clearActive(){
   tbody.querySelectorAll('tr.cue-active').forEach(tr=>{tr.classList.remove('cue-active');
     const b=tr.querySelector('.cue-progress');if(b)b.style.width='0'});
+  tbody.querySelectorAll('.live-chip').forEach(el=>el.remove());
   chase.activeIdx=-1;
 }
 setInterval(updateChaseUI,100);
@@ -651,6 +691,68 @@ function moveCue(from,target,after){
   orderModified=true;recalcTC();render();
   toast(`Moved "${item.label}" — TC rippled`);
   saveState();
+}
+
+/* =========================================================
+   INLINE EDIT — add/delete cues, edit fields directly in the sheet
+   ========================================================= */
+function pushUndo(){undoStack.push(JSON.parse(JSON.stringify(cues)));if(undoStack.length>20)undoStack.shift()}
+
+function editCue(idx,field,raw){
+  const c=cues[idx];if(!c)return;
+  const val=raw.trim();
+  if(field==='durSec'){
+    const s=tcToSec(val);
+    if(s==null){toast('Bad duration — use HH:MM:SS:FF',true);render();return}
+    pushUndo();c.durSec=s;recalcTC();render();saveState();toast('Duration updated — TC rippled');return;
+  }
+  if(c[field]===val)return; // unchanged on blur — skip, don't spam the undo stack
+  pushUndo();c[field]=val;
+  if(field==='label')rebuildSceneDropdown();
+  saveState();
+}
+function bindEdits(){
+  tbody.querySelectorAll('[contenteditable="true"]').forEach(el=>{
+    el.addEventListener('blur',()=>editCue(+el.dataset.idx,el.dataset.field,el.textContent));
+    el.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();el.blur()}});
+  });
+}
+function setStatus(idx,val){
+  const c=cues[idx];if(!c)return;
+  c.status=val;saveState();
+  const sel=tbody.querySelector(`td.status-cell[data-idx="${idx}"] select`);
+  if(sel)sel.className='status '+statusClass(val);
+}
+
+function blankCue(act){
+  return{act,kind:'main',cue:'',label:'',durSec:30,trigger:'GO',dept:'',device:'',action:'',
+    fade:'',status:'Standby',note:'',tcIn:'',tcOut:'',dur:''};
+}
+function addCueAfter(idx){
+  pushUndo();
+  const act=cues[idx]?.act||1;
+  cues.splice(idx+1,0,blankCue(act));
+  recalcTC();rebuildSceneDropdown();render();saveState();
+  toast('Cue added — click the label to name it');
+  setTimeout(()=>{
+    const el=tbody.querySelector(`tr[data-idx="${idx+1}"] [data-field="label"]`);
+    if(el){el.focus()}
+  },50);
+}
+function addCueGlobal(){
+  const fa=document.getElementById('fAct').value;
+  const act=fa?+fa:(cues.find(c=>c.kind!=='banner')?.act||1);
+  const actIdxs=cues.map((c,i)=>i).filter(i=>cues[i].kind!=='banner'&&cues[i].act===act);
+  const insertIdx=actIdxs.length?actIdxs[actIdxs.length-1]:cues.length-1;
+  addCueAfter(insertIdx);
+}
+function deleteCue(idx){
+  const c=cues[idx];if(!c)return;
+  if(!confirm(`Delete cue "${c.cue||'?'} — ${c.label||'(no label)'}"?`))return;
+  pushUndo();
+  cues.splice(idx,1);
+  recalcTC();rebuildSceneDropdown();render();saveState();
+  toast('Cue deleted — Undo to restore');
 }
 
 /* =========================================================
