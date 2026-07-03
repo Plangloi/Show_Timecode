@@ -108,19 +108,13 @@ col.c-trigger{width:95px}col.c-dept{width:65px}col.c-device{width:140px}
 col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-notes{min-width:150px}
 
 .status{display:inline-block;padding:2px 10px;border-radius:3px;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;min-width:64px;text-align:center;border:none;cursor:pointer;font-family:inherit;-webkit-appearance:none;appearance:none}
-.status-live{background:var(--green);color:#000;animation:pulse 1.5s ease-in-out infinite}
+.status-running{background:var(--green);color:#000;animation:pulse 1.5s ease-in-out infinite}
 .status-ready{background:var(--blue);color:#fff}
 .status-standby{background:var(--amber);color:#000}
 .status-hold{background:var(--purple);color:#fff}
 .status-done{background:var(--muted);color:var(--dim)}
 .status-cut{background:#333;color:var(--muted);text-decoration:line-through}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
-
-/* auto-driven "currently playing" chip — separate from the manual Status
-   select above, never overwrites it. Lit by the chase engine only. */
-.live-chip{display:inline-flex;align-items:center;background:var(--green);color:#000;
-  padding:1px 7px;border-radius:3px;font-size:.62rem;font-weight:800;text-transform:uppercase;
-  letter-spacing:.05em;margin-left:5px;animation:pulse 1.1s ease-in-out infinite;white-space:nowrap}
 
 /* per-row insert/delete — hover-reveal to keep the sheet dense/scannable */
 .row-actions{display:inline-flex;gap:2px;opacity:0;transition:opacity .12s;vertical-align:middle;margin-left:2px}
@@ -224,7 +218,7 @@ tr:hover .row-actions{opacity:1}
     <label>Dept</label>
     <select id="fDept"><option value="">All</option><option>Sound</option><option>LX</option><option>Video</option><option>Band</option></select>
     <label>Status</label>
-    <select id="fStatus"><option value="">All</option><option>Standby</option><option>Ready</option><option>Live</option><option>Done</option><option>Hold</option><option>Cut</option></select>
+    <select id="fStatus"><option value="">All</option><option>Standby</option><option>Ready</option><option>Running</option><option>Done</option><option>Hold</option><option>Cut</option></select>
     <label>Scene</label>
     <select id="fScene"><option value="">All</option></select>
     <label>Search</label>
@@ -411,7 +405,7 @@ function render(){
       <td class="ctr">${ed('dept','Dept')}</td><td>${ed('device','Device')}</td><td>${ed('action','Action')}</td>
       <td class="ctr">${ed('fade','Fade')}</td>
       <td class="ctr status-cell" data-idx="${idx}"><select class="status ${statusClass(c.status)}" onchange="setStatus(${idx},this.value)">
-        ${['Standby','Ready','Live','Hold','Done','Cut'].map(s=>`<option value="${s}"${c.status===s?' selected':''}>${s}</option>`).join('')}
+        ${['Standby','Ready','Running','Hold','Done','Cut'].map(s=>`<option value="${s}"${c.status===s?' selected':''}>${s}</option>`).join('')}
       </select></td>
       <td class="note" title="${esc(c.note)}">${ed('note','Notes…')}</td></tr>`});
   tbody.innerHTML=html;
@@ -611,22 +605,27 @@ function updateChaseUI(){
     if(x.c.tcInSec>t&&(next==null||x.c.tcInSec<next.c.tcInSec))next=x;
   }
   if((active?active.i:-1)!==chase.activeIdx){
+    // Cue that was active a moment ago (if any) reverts to Standby — auto,
+    // driven purely by the chase engine. This overwrites whatever status
+    // was set before it went live (Hold/Cut/etc. won't survive playback).
+    const prevIdx=chase.activeIdx;
+    if(prevIdx>=0&&cues[prevIdx]){
+      cues[prevIdx].status='Standby';
+      const prevSel=tbody.querySelector(`td.status-cell[data-idx="${prevIdx}"] select`);
+      if(prevSel){prevSel.value='Standby';prevSel.className='status '+statusClass('Standby')}
+    }
     clearActive();
     chase.activeIdx=active?active.i:-1;
     if(active){
+      cues[active.i].status='Running';
       const tr=tbody.querySelector(`tr[data-idx="${active.i}"]`);
       if(tr){
         tr.classList.add('cue-active');
-        // Auto "currently playing" chip — driven purely by the chase engine,
-        // never touches the manually-set Status select next to it.
-        const statusCell=tr.querySelector('.status-cell');
-        if(statusCell&&!statusCell.querySelector('.live-chip')){
-          const chip=document.createElement('span');
-          chip.className='live-chip';chip.textContent='● LIVE';
-          statusCell.appendChild(chip);
-        }
+        const sel=tr.querySelector('.status-cell select');
+        if(sel){sel.value='Running';sel.className='status '+statusClass('Running')}
         if(chase.follow)tr.scrollIntoView({block:'center',behavior:'smooth'})}
     }
+    saveState();
   }
   if(active){
     const tr=tbody.querySelector(`tr[data-idx="${active.i}"]`);
@@ -644,7 +643,6 @@ function updateChaseUI(){
 function clearActive(){
   tbody.querySelectorAll('tr.cue-active').forEach(tr=>{tr.classList.remove('cue-active');
     const b=tr.querySelector('.cue-progress');if(b)b.style.width='0'});
-  tbody.querySelectorAll('.live-chip').forEach(el=>el.remove());
   chase.activeIdx=-1;
 }
 setInterval(updateChaseUI,100);
