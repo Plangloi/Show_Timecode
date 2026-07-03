@@ -602,13 +602,26 @@ function updateChaseUI(){
   el.classList.toggle('running',chase.running&&!chase.wsActive&&!chase.mtcActive);
   el.classList.toggle('ws',chase.wsActive);
   el.classList.toggle('mtc',chase.mtcActive);
+  // If the user is mid-edit in a table cell, skip applying a transition this
+  // tick rather than call render() out from under them — it'll retry on the
+  // next 100ms tick, so it applies within a beat of them blurring the field.
+  const editEl=document.activeElement;
+  const editing=!!(editEl&&editEl.isContentEditable&&tbody.contains(editEl));
+
   if(t==null){
     el.textContent='--:--:--:--';document.getElementById('nowInfo').innerHTML='';document.getElementById('nextInfo').innerHTML='';
     // Chase stopped (or no source) — the cue that was active, if any, must
-    // revert to Standby here too. This early-return path used to skip that
-    // (bug: stopping mid-cue left it stuck on green "Running" forever).
-    if(chase.activeIdx>=0){revertActiveStatus();saveState()}
-    clearActive();return;
+    // revert to Standby here too (was previously skipped, leaving it stuck
+    // on green "Running"). Mutating status *then* calling render() also
+    // makes a Status=Running filter correctly drop the row immediately,
+    // instead of only updating next time something else forces a render.
+    if(chase.activeIdx>=0&&!editing){
+      cues[chase.activeIdx].status='Standby';
+      chase.activeIdx=-1;
+      render();
+      saveState();
+    }
+    return;
   }
   el.textContent=tc2(t);
 
@@ -619,20 +632,23 @@ function updateChaseUI(){
     if(t>=x.c.tcInSec&&t<x.c.tcOutSec){active=x}
     if(x.c.tcInSec>t&&(next==null||x.c.tcInSec<next.c.tcInSec))next=x;
   }
-  if((active?active.i:-1)!==chase.activeIdx){
-    // Cue that was active a moment ago (if any) reverts to Standby — auto,
-    // driven purely by the chase engine. This overwrites whatever status
-    // was set before it went live (Hold/Cut/etc. won't survive playback).
-    revertActiveStatus();
-    clearActive();
-    chase.activeIdx=active?active.i:-1;
+  const newIdx=active?active.i:-1;
+  if(newIdx!==chase.activeIdx&&!editing){
+    // Same fix as above: mutate status for outgoing/incoming cue BEFORE
+    // render(), so the rebuilt table's Status filter sees the fresh value —
+    // a cue going live now appears immediately even if a "Running" filter
+    // had it hidden while it was still Standby, and disappears immediately
+    // when it ends. render() itself already draws the select in the right
+    // color since it reads c.status fresh; we only need to re-add the
+    // cue-active row highlight/progress-bar afterward.
+    if(chase.activeIdx>=0&&cues[chase.activeIdx])cues[chase.activeIdx].status='Standby';
+    if(active)cues[active.i].status='Running';
+    chase.activeIdx=newIdx;
+    render();
     if(active){
-      cues[active.i].status='Running';
       const tr=tbody.querySelector(`tr[data-idx="${active.i}"]`);
       if(tr){
         tr.classList.add('cue-active');
-        const sel=tr.querySelector('.status-cell select');
-        if(sel){sel.value='Running';sel.className='status '+statusClass('Running')}
         if(chase.follow)tr.scrollIntoView({block:'center',behavior:'smooth'})}
     }
     saveState();
@@ -649,22 +665,6 @@ function updateChaseUI(){
   /* NEXT (right) with big countdown */
   document.getElementById('nextInfo').innerHTML=next
     ? `NEXT in <span class="big">${tc2(Math.max(0,next.c.tcInSec-t)).slice(3)}</span><br><b>${esc(next.c.cue)} · ${esc(next.c.label)}</b>` : '';
-}
-function clearActive(){
-  tbody.querySelectorAll('tr.cue-active').forEach(tr=>{tr.classList.remove('cue-active');
-    const b=tr.querySelector('.cue-progress');if(b)b.style.width='0'});
-  chase.activeIdx=-1;
-}
-// Reverts whatever cue is currently marked chase.activeIdx back to Standby.
-// Called from both the "active cue changed" path and the "chase stopped /
-// no TC source" path — must run on every way a cue can stop being live,
-// or it's left stuck on green "Running" (was the STOP-button bug).
-function revertActiveStatus(){
-  const idx=chase.activeIdx;
-  if(idx<0||!cues[idx])return;
-  cues[idx].status='Standby';
-  const sel=tbody.querySelector(`td.status-cell[data-idx="${idx}"] select`);
-  if(sel){sel.value='Standby';sel.className='status '+statusClass('Standby')}
 }
 setInterval(updateChaseUI,100);
 
