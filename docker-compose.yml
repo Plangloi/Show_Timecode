@@ -1,0 +1,27 @@
+services:
+  relay:
+    build: .
+    image: tc-relay:latest
+    container_name: tc-relay
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    # Default free-run generator — swap for --core/--component/--control
+    # (QRC) or --mtc (hardware MIDI, Linux + devices: mapping, see README)
+    command: ["--fake", "01:00:00:00"]
+    # Uncomment for MTC mode on a Linux host (Raspberry Pi, etc.) — USB MIDI
+    # interfaces show up under ALSA as /dev/snd/*. Not usable on macOS/Windows
+    # Docker Desktop, see README "Docker" section.
+    # devices:
+    #   - /dev/snd:/dev/snd
+    # group_add:
+    #   - audio
+
+  cuesheet:
+    image: nginx:alpine
+    container_name: tc-cuesheet
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./timecode_cue_sheet_4.html:/usr/share/nginx/html/index.html:ro

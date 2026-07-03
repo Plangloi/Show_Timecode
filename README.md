@@ -144,6 +144,47 @@ In `timecode_cue_sheet.html`:
 
 ---
 
+## Docker
+
+`Dockerfile` + `docker-compose.yml` run the relay and the cue sheet as two containers — `relay` (the WS relay, multi-stage build so the final image only carries the ALSA runtime lib, not the compiler) and `cuesheet` (nginx serving `timecode_cue_sheet_4.html` as a static site).
+
+```bash
+docker compose up -d --build
+```
+
+- Relay: `ws://<host>:8765` — defaults to the free-run generator from `01:00:00:00`, so it works out of the box with zero hardware/config, good for testing the cue sheet.
+- Cue sheet UI: `http://<host>:8080`
+
+**Switching modes** — edit `command:` in `docker-compose.yml` for a persistent deployment:
+
+```yaml
+command: ["--core", "192.168.10.10", "--component", "LTC_Reader", "--control", "timecode"]
+```
+
+or override ad hoc without touching the file:
+
+```bash
+docker compose run --rm -p 8765:8765 relay --core 192.168.10.10 --component LTC_Reader --control timecode
+```
+
+then `docker compose up -d` to apply.
+
+**QRC and Fake modes work anywhere** — plain outbound TCP / generated data, no L2 or USB dependency, so default bridge networking is fine on any Docker host, including Docker Desktop on macOS.
+
+**MTC mode needs Linux + USB passthrough** — MIDI hardware access doesn't cross the Docker Desktop macOS VM boundary cleanly. On a Linux host, uncomment in `docker-compose.yml`:
+
+```yaml
+devices:
+  - /dev/snd:/dev/snd
+group_add:
+  - audio
+command: ["--mtc", "MOTU"]
+```
+
+If the container still can't see the interface after that, `privileged: true` is the blunt fallback — wider blast radius, only reach for it if the device mapping + group approach doesn't resolve ALSA permissions. On macOS, run `qsys_tc_relay.py --mtc "..."` natively for MTC (see Requirements above) — Docker isn't the right tool for that mode there.
+
+**vs. systemd** — for a dedicated always-on Pi doing MTC capture, the systemd unit below is still the better fit: direct hardware access, no container/USB passthrough fuss, `journalctl` for logs. Docker's the better fit for QRC/Fake mode, or when you want the relay + cue sheet reproducible/portable across machines.
+
 ## Running as a systemd service (Raspberry Pi / Linux)
 
 ```bash
