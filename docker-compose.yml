@@ -5,7 +5,7 @@ services:
     container_name: tc-relay
     restart: unless-stopped
     ports:
-      - "8765:8765"
+      - "${RELAY_WS_PORT:-8765}:8765"
     # Default free-run generator — swap for --core/--component/--control
     # (QRC) or --mtc (hardware MIDI, Linux + devices: mapping, see README)
     command: ["--fake", "01:00:00:00"]
@@ -22,6 +22,6 @@ services:
     container_name: tc-cuesheet
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${CUESHEET_PORT:-8080}:80"
     volumes:
       - ./timecode_cue_sheet_4.html:/usr/share/nginx/html/index.html:ro

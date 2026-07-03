@@ -155,6 +155,20 @@ docker compose up -d --build
 - Relay: `ws://<host>:8765` — defaults to the free-run generator from `01:00:00:00`, so it works out of the box with zero hardware/config, good for testing the cue sheet.
 - Cue sheet UI: `http://<host>:8080`
 
+**Changing ports** — both are env-var driven (`${RELAY_WS_PORT:-8765}` / `${CUESHEET_PORT:-8080}` in `docker-compose.yml`):
+
+```bash
+CUESHEET_PORT=9090 docker compose up -d          # one-off, this run only
+
+cp .env.example .env                              # persistent — compose auto-reads .env
+echo "CUESHEET_PORT=9090" >> .env
+docker compose up -d
+
+docker compose up -d --force-recreate cuesheet    # already running, just remap (no rebuild)
+```
+
+Recreating a container to change its published port is the ceiling of what Docker's port-publishing model allows — there's no true hot remap on a running container.
+
 **Switching modes** — edit `command:` in `docker-compose.yml` for a persistent deployment:
 
 ```yaml
