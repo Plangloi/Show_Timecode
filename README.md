@@ -144,6 +144,20 @@ In `timecode_cue_sheet.html`:
 
 ---
 
+## Editing the cue sheet
+
+Everything's editable directly in the table — no re-import needed:
+
+- **Add a cue** — toolbar **＋ Add Cue** (appends to the current/default act), or hover any row and click its **＋** to insert right after it.
+- **Delete a cue** — hover a row, click **✕** (confirms first).
+- **Rename / edit fields** — click into Cue#, Label/Scene, Trigger, Dept, Device, Action, Fade, or Notes and type. Commits on blur or Enter.
+- **Edit Duration** — click the Dur cell, type `HH:MM:SS:FF`. TC In/Out for every following cue ripples forward automatically — same mechanism as drag-reordering.
+- All of the above feed the existing **⎌ Undo** button and autosave (localStorage), so none of this is riskier than a drag-reorder.
+
+**Status** — a dropdown per cue: Standby / Ready / Running / Hold / Done / Cut. While a cue is the one currently under the TC playhead, its Status is **automatically forced to "Running"** (green, pulsing) — this overwrites whatever was set manually. The instant that cue's TC window ends, it reverts to **"Standby"** (not whatever it was before — a cue left on "Hold" or "Cut" will read "Standby" after the playhead passes through it). Driven purely by the chase engine, so it behaves the same regardless of TC source (Manual / WebSocket / MTC).
+
+---
+
 ## Docker
 
 `Dockerfile` + `docker-compose.yml` run the relay and the cue sheet as two containers — `relay` (the WS relay, multi-stage build so the final image only carries the ALSA runtime lib, not the compiler) and `cuesheet` (nginx serving `timecode_cue_sheet_4.html` as a static site).

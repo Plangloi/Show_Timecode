@@ -317,6 +317,13 @@ function saveState(){
     }catch(e){console.warn('save failed',e)}
   },300);
 }
+// "Running" is a chase-engine-only, transient state — it must never survive
+// a page load (chase always starts stopped) or an import. If it's found in
+// loaded data, something saved mid-live (e.g. an old stuck-cue bug) — clamp
+// it back to Standby so a stale value can't get permanently wedged.
+function sanitizeStatuses(){
+  cues.forEach(c=>{if(c.kind!=='banner'&&c.status==='Running')c.status='Standby'});
+}
 function loadState(){
   try{
     const raw=localStorage.getItem(LS_KEY);
@@ -324,6 +331,7 @@ function loadState(){
     const st=JSON.parse(raw);
     if(!st.cues||!st.cues.length)return false;
     cues=st.cues;orderModified=!!st.orderModified;
+    sanitizeStatuses();
     recalcTC();
     if(st.meta)Object.entries(st.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val)e.textContent=val});
     if(st.tcColor)setTcColor(st.tcColor);
@@ -594,7 +602,14 @@ function updateChaseUI(){
   el.classList.toggle('running',chase.running&&!chase.wsActive&&!chase.mtcActive);
   el.classList.toggle('ws',chase.wsActive);
   el.classList.toggle('mtc',chase.mtcActive);
-  if(t==null){el.textContent='--:--:--:--';document.getElementById('nowInfo').innerHTML='';document.getElementById('nextInfo').innerHTML='';clearActive();return}
+  if(t==null){
+    el.textContent='--:--:--:--';document.getElementById('nowInfo').innerHTML='';document.getElementById('nextInfo').innerHTML='';
+    // Chase stopped (or no source) — the cue that was active, if any, must
+    // revert to Standby here too. This early-return path used to skip that
+    // (bug: stopping mid-cue left it stuck on green "Running" forever).
+    if(chase.activeIdx>=0){revertActiveStatus();saveState()}
+    clearActive();return;
+  }
   el.textContent=tc2(t);
 
   const act=+document.getElementById('chaseAct').value;
@@ -608,12 +623,7 @@ function updateChaseUI(){
     // Cue that was active a moment ago (if any) reverts to Standby — auto,
     // driven purely by the chase engine. This overwrites whatever status
     // was set before it went live (Hold/Cut/etc. won't survive playback).
-    const prevIdx=chase.activeIdx;
-    if(prevIdx>=0&&cues[prevIdx]){
-      cues[prevIdx].status='Standby';
-      const prevSel=tbody.querySelector(`td.status-cell[data-idx="${prevIdx}"] select`);
-      if(prevSel){prevSel.value='Standby';prevSel.className='status '+statusClass('Standby')}
-    }
+    revertActiveStatus();
     clearActive();
     chase.activeIdx=active?active.i:-1;
     if(active){
@@ -644,6 +654,17 @@ function clearActive(){
   tbody.querySelectorAll('tr.cue-active').forEach(tr=>{tr.classList.remove('cue-active');
     const b=tr.querySelector('.cue-progress');if(b)b.style.width='0'});
   chase.activeIdx=-1;
+}
+// Reverts whatever cue is currently marked chase.activeIdx back to Standby.
+// Called from both the "active cue changed" path and the "chase stopped /
+// no TC source" path — must run on every way a cue can stop being live,
+// or it's left stuck on green "Running" (was the STOP-button bug).
+function revertActiveStatus(){
+  const idx=chase.activeIdx;
+  if(idx<0||!cues[idx])return;
+  cues[idx].status='Standby';
+  const sel=tbody.querySelector(`td.status-cell[data-idx="${idx}"] select`);
+  if(sel){sel.value='Standby';sel.className='status '+statusClass('Standby')}
 }
 setInterval(updateChaseUI,100);
 
@@ -806,6 +827,7 @@ function importXLSX(file){
           trigger:f||'GO',dept:g,device:h,action:i_,fade:k,status:l||'Standby',note:m,tcIn:b,tcOut:c_,dur:d});
       }
       cues=newCues;orderModified=false;undoStack=[];
+      sanitizeStatuses();
       recalcTC();rebuildSceneDropdown();rebuildDeptDropdown();resetFilters();render();
       const info=document.getElementById('importInfo');info.style.display='block';
       document.getElementById('importFile').textContent=file.name;
