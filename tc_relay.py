@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-qsys_tc_relay.py — Poll Q-SYS Core timecode via QRC, broadcast to WebSocket clients.
+tc_relay.py — Decode MTC (MIDI Time Code), broadcast to WebSocket clients.
 
 Le cue sheet HTML se connecte sur ws://<host>:8765 et reçoit {"tc": "HH:MM:SS:FF"}.
 
 Usage:
-    pip install websockets
-    ./qsys_tc_relay.py --core 192.168.10.10 --component LTC_Reader --control timecode
+    pip install websockets python-rtmidi
+    ./tc_relay.py --mtc "Horae"
 
-Adapte --component/--control au named component de ton design Q-SYS
-(ex: un LTC Reader, un Q-SYS Media Player position, ou un script qui expose le TC).
+MTC source can be a local MIDI port, an IAC/virtual bus, or an RTP-MIDI
+(AppleMIDI) network session — Horae or a Visual Productions TimeCore feed
+an RTP-MIDI session the same way, it just needs to be joined at the OS level
+first (see README). Once joined it shows up as a regular MIDI port name.
 
-Test sans Core (générateur free-run):
-    ./qsys_tc_relay.py --fake 01:00:00:00
+Test sans matériel (générateur free-run):
+    ./tc_relay.py --fake 01:00:00:00
 """
 import asyncio, json, argparse, time, sys
 
@@ -30,56 +32,6 @@ async def broadcast(tc: str):
         return
     msg = json.dumps({"tc": tc})
     await asyncio.gather(*(c.send(msg) for c in list(clients)), return_exceptions=True)
-
-# ---------------------------------------------------------------- QRC poll
-async def qrc_source(host: str, port: int, component: str, control: str, rate: float):
-    """JSON-RPC 2.0 over TCP, NULL-terminated frames (QRC protocol)."""
-    while True:
-        try:
-            reader, writer = await asyncio.open_connection(host, port)
-            print(f"[qrc] connected {host}:{port}")
-            rpc_id = 0
-
-            async def send(obj):
-                writer.write(json.dumps(obj).encode() + b"\x00")
-                await writer.drain()
-
-            # NoOp keepalive obligatoire (<60s) — QRC ferme sinon
-            async def keepalive():
-                while True:
-                    await asyncio.sleep(30)
-                    await send({"jsonrpc": "2.0", "method": "NoOp", "params": {}})
-
-            ka = asyncio.create_task(keepalive())
-            buf = b""
-            try:
-                while True:
-                    rpc_id += 1
-                    await send({"jsonrpc": "2.0", "id": rpc_id, "method": "Component.Get",
-                                "params": {"Name": component,
-                                           "Controls": [{"Name": control}]}})
-                    # read one frame
-                    while b"\x00" not in buf:
-                        chunk = await reader.read(4096)
-                        if not chunk:
-                            raise ConnectionError("QRC closed")
-                        buf += chunk
-                    frame, _, buf = buf.partition(b"\x00")
-                    try:
-                        resp = json.loads(frame)
-                        ctrls = resp.get("result", {}).get("Controls", [])
-                        if ctrls:
-                            tc = str(ctrls[0].get("String") or ctrls[0].get("Value", ""))
-                            if tc:
-                                await broadcast(tc)
-                    except json.JSONDecodeError:
-                        pass
-                    await asyncio.sleep(rate)
-            finally:
-                ka.cancel()
-        except (OSError, ConnectionError) as e:
-            print(f"[qrc] {e} — retry in 3s")
-            await asyncio.sleep(3)
 
 # ---------------------------------------------------------------- MTC source
 async def mtc_source(port_filter: str):
@@ -142,26 +94,19 @@ async def fake_source(start_tc: str, fps: int):
 async def main():
     import websockets
     ap = argparse.ArgumentParser()
-    ap.add_argument("--core", help="Q-SYS Core IP")
-    ap.add_argument("--port", type=int, default=1710, help="QRC port (default 1710)")
-    ap.add_argument("--component", default="LTC_Reader", help="Named component")
-    ap.add_argument("--control", default="timecode", help="Control name exposing TC string")
-    ap.add_argument("--rate", type=float, default=0.1, help="Poll interval s (default 0.1)")
     ap.add_argument("--ws-port", type=int, default=8765)
-    ap.add_argument("--fake", metavar="HH:MM:SS:FF", help="Free-run generator (no Core needed)")
+    ap.add_argument("--fake", metavar="HH:MM:SS:FF", help="Free-run generator (no hardware needed)")
     ap.add_argument("--mtc", metavar="PORT_NAME", help="Decode MTC from MIDI input (substring match)")
     ap.add_argument("--fps", type=int, default=30)
     args = ap.parse_args()
 
-    if not (args.fake or args.core or args.mtc):
-        ap.error("--core, --mtc or --fake required")
+    if not (args.fake or args.mtc):
+        ap.error("--mtc or --fake required")
 
     if args.fake:
         src = fake_source(args.fake, args.fps)
-    elif args.mtc:
-        src = mtc_source(args.mtc)
     else:
-        src = qrc_source(args.core, args.port, args.component, args.control, args.rate)
+        src = mtc_source(args.mtc)
 
     async with websockets.serve(ws_handler, "0.0.0.0", args.ws_port):
         print(f"[ws] broadcasting on ws://0.0.0.0:{args.ws_port}")

@@ -55,7 +55,7 @@ If you see **nothing printed**, start it manually:
 
 ```bash
 cd ~/Documents/Git/Show_Timecode
-uv run --with websockets --with python-rtmidi python3 qsys_tc_relay.py --mtc "IAC"
+uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "IAC"
 ```
 
 Leave that Terminal window open in the background while the show runs.
@@ -101,9 +101,9 @@ When in doubt: close the browser tab, reopen `http://localhost:8080`, and redo S
 
 ---
 
-# qsys_tc_relay.py — Timecode WebSocket Relay
+# tc_relay.py — Timecode WebSocket Relay
 
-Bridges **MIDI Time Code (MTC)**, **Q-SYS QRC**, or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
+Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
 Used as the TC source backend for `timecode_cue_sheet.html`.
 
 ---
@@ -125,13 +125,13 @@ pip install websockets python-rtmidi --break-system-packages
 
 ## Modes
 
-### 1. MTC — MIDI Time Code (hardware source)
+### 1. MTC — MIDI Time Code (local, virtual bus, or network)
 
 Decodes MTC quarter-frames and full-frame SysEx from any MIDI input.  
 Framerate (24 / 25 / 29.97DF / 30) is **auto-detected** from the MTC stream.
 
 ```bash
-python3 qsys_tc_relay.py --mtc "MOTU"
+python3 tc_relay.py --mtc "MOTU"
 ```
 
 `--mtc` accepts a **substring** of the MIDI port name (case-insensitive).  
@@ -148,58 +148,29 @@ EOF
 **Quarter-frame note:** MTC encodes TC across 8 QF messages spanning 2 frames.  
 The relay applies the standard **+2 frame latency compensation** so the displayed TC matches the actual playhead position.
 
----
+**MTC over the network (Horae / Visual Productions TimeCore):**  
+`tc_relay.py` only ever talks to a named MIDI port — it doesn't care whether that port is local hardware, a virtual bus (IAC), or a network session. To get MTC across the network:
 
-### 2. QRC — Q-SYS Core (network source)
-
-Polls a Named Component control on the Q-SYS Core via JSON-RPC 2.0 over TCP (QRC protocol, port 1710). The control must expose the timecode as a string in `HH:MM:SS:FF` format.
+1. Have Horae or a [TimeCore](https://www.visualproductions.nl/products/timecore) send **RTP-MIDI (AppleMIDI)** on the network — TimeCore supports RTP-MIDI natively; in Horae, add an RTP-MIDI destination alongside (or instead of) IAC.
+2. Join that RTP-MIDI session at the OS level on the machine running the relay:
+   - **macOS:** Audio MIDI Setup → Window → MIDI Studio → *MIDI Network Setup* → connect to the session.
+   - **Linux:** `rtpmidid` creates a matching ALSA MIDI port for any RTP-MIDI session it discovers/joins on the network.
+   - **Windows:** install the Tobias Erichsen `rtpMIDI` driver and add the session there.
+3. Once joined, the session shows up as a normal MIDI port — point `--mtc` at a substring of its name, same as any local port:
 
 ```bash
-python3 qsys_tc_relay.py \
-  --core 192.168.10.10 \
-  --component LTC_Reader \
-  --control timecode
-```
-
-| Argument | Default | Description |
-|---|---|---|
-| `--core` | required | Q-SYS Core IP address |
-| `--port` | `1710` | QRC TCP port |
-| `--component` | `LTC_Reader` | Named Component in your design |
-| `--control` | `timecode` | Control name exposing TC string |
-| `--rate` | `0.1` | Poll interval in seconds (10 Hz) |
-
-**Q-SYS design requirements:**
-- A Named Component (LTC Reader, Media Player, or Lua script) that exposes a string control with value `HH:MM:SS:FF`
-- QRC access enabled on the Core (default port 1710)
-- A NoOp keepalive is sent every 30s automatically — QRC drops the connection after 60s of inactivity
-
-**Example Lua snippet** to expose a TC string from an LTC Reader:
-
-```lua
--- In a Q-SYS Lua script block, Named Component: "LTC_Reader"
--- Control: "timecode" (Text, read-only)
-function GetTC()
-  local tc = Controls["timecode"]
-  -- format from LTC Reader position control
-  local s = Controls["position"].Value
-  local h = math.floor(s / 3600)
-  local m = math.floor((s % 3600) / 60)
-  local f = math.floor((s % 1) * 30)
-  s = math.floor(s % 60)
-  Controls["timecode"].String = string.format("%02d:%02d:%02d:%02d", h, m, f, s)
-end
+python3 tc_relay.py --mtc "TimeCore"
 ```
 
 ---
 
-### 3. Fake — Free-run generator (no hardware needed)
+### 2. Fake — Free-run generator (no hardware needed)
 
-Generates TC from a given start point, incrementing in real time. Useful for testing the cue sheet without any MIDI or Q-SYS hardware.
+Generates TC from a given start point, incrementing in real time. Useful for testing the cue sheet without any MIDI hardware or network session.
 
 ```bash
-python3 qsys_tc_relay.py --fake 01:00:00:00
-python3 qsys_tc_relay.py --fake 00:59:50:00 --fps 25
+python3 tc_relay.py --fake 01:00:00:00
+python3 tc_relay.py --fake 00:59:50:00 --fps 25
 ```
 
 | Argument | Default | Description |
@@ -286,20 +257,20 @@ Recreating a container to change its published port is the ceiling of what Docke
 **Switching modes** — edit `command:` in `docker-compose.yml` for a persistent deployment:
 
 ```yaml
-command: ["--core", "192.168.10.10", "--component", "LTC_Reader", "--control", "timecode"]
+command: ["--mtc", "TimeCore"]
 ```
 
 or override ad hoc without touching the file:
 
 ```bash
-docker compose run --rm -p 8765:8765 relay --core 192.168.10.10 --component LTC_Reader --control timecode
+docker compose run --rm -p 8765:8765 relay --mtc "TimeCore"
 ```
 
 then `docker compose up -d` to apply.
 
-**QRC and Fake modes work anywhere** — plain outbound TCP / generated data, no L2 or USB dependency, so default bridge networking is fine on any Docker host, including Docker Desktop on macOS.
+**Fake mode works anywhere** — generated data, no L2 or USB dependency, so default bridge networking is fine on any Docker host, including Docker Desktop on macOS.
 
-**MTC mode needs Linux + USB passthrough** — MIDI hardware access doesn't cross the Docker Desktop macOS VM boundary cleanly. On a Linux host, uncomment in `docker-compose.yml`:
+**MTC mode needs Linux + USB/network MIDI passthrough** — MIDI access doesn't cross the Docker Desktop macOS VM boundary cleanly. On a Linux host, uncomment in `docker-compose.yml`:
 
 ```yaml
 devices:
@@ -309,9 +280,11 @@ group_add:
 command: ["--mtc", "MOTU"]
 ```
 
-If the container still can't see the interface after that, `privileged: true` is the blunt fallback — wider blast radius, only reach for it if the device mapping + group approach doesn't resolve ALSA permissions. On macOS, run `qsys_tc_relay.py --mtc "..."` natively for MTC (see Requirements above) — Docker isn't the right tool for that mode there.
+That covers local/USB MIDI. For an **RTP-MIDI network session** (Horae or TimeCore), join the session with `rtpmidid` on the Linux host first (outside the container) — it creates a regular ALSA MIDI port, which then just needs the same `/dev/snd` passthrough to reach the container.
 
-**vs. systemd** — for a dedicated always-on Pi doing MTC capture, the systemd unit below is still the better fit: direct hardware access, no container/USB passthrough fuss, `journalctl` for logs. Docker's the better fit for QRC/Fake mode, or when you want the relay + cue sheet reproducible/portable across machines.
+If the container still can't see the interface after that, `privileged: true` is the blunt fallback — wider blast radius, only reach for it if the device mapping + group approach doesn't resolve ALSA permissions. On macOS, run `tc_relay.py --mtc "..."` natively for MTC (see Requirements above) — Docker isn't the right tool for that mode there.
+
+**vs. systemd** — for a dedicated always-on Pi doing MTC capture, the systemd unit below is still the better fit: direct hardware access, no container/USB passthrough fuss, `journalctl` for logs. Docker's the better fit for Fake mode, or when you want the relay + cue sheet reproducible/portable across machines.
 
 ## Running as a systemd service (Raspberry Pi / Linux)
 
@@ -323,7 +296,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/var/www/showcontrol
-ExecStart=/usr/bin/python3 /var/www/showcontrol/qsys_tc_relay.py --mtc "MOTU" --ws-port 8765
+ExecStart=/usr/bin/python3 /var/www/showcontrol/tc_relay.py --mtc "MOTU" --ws-port 8765
 Restart=always
 RestartSec=3
 User=pi
@@ -339,7 +312,7 @@ sudo systemctl status tc-relay
 journalctl -u tc-relay -f
 ```
 
-Change `--mtc "MOTU"` to `--core 192.168.x.x` or `--fake 01:00:00:00` as needed.
+Change `--mtc "MOTU"` to `--mtc "TimeCore"` (or whatever the RTP-MIDI session/port is named once joined) or `--fake 01:00:00:00` as needed.
 
 ---
 
@@ -347,12 +320,11 @@ Change `--mtc "MOTU"` to `--core 192.168.x.x` or `--fake 01:00:00:00` as needed.
 
 | Mode | Command |
 |---|---|
-| MTC from MOTU interface | `python3 qsys_tc_relay.py --mtc "MOTU"` |
-| MTC, custom WS port | `python3 qsys_tc_relay.py --mtc "USB MIDI" --ws-port 9000` |
-| Q-SYS Core | `python3 qsys_tc_relay.py --core 192.168.10.10 --component LTC_Reader --control timecode` |
-| Q-SYS, faster poll | `python3 qsys_tc_relay.py --core 192.168.10.10 --rate 0.04` |
-| Free-run from 1h | `python3 qsys_tc_relay.py --fake 01:00:00:00` |
-| Free-run, 25fps | `python3 qsys_tc_relay.py --fake 00:59:50:00 --fps 25` |
+| MTC from MOTU interface | `python3 tc_relay.py --mtc "MOTU"` |
+| MTC over RTP-MIDI (Horae/TimeCore) | `python3 tc_relay.py --mtc "TimeCore"` |
+| MTC, custom WS port | `python3 tc_relay.py --mtc "USB MIDI" --ws-port 9000` |
+| Free-run from 1h | `python3 tc_relay.py --fake 01:00:00:00` |
+| Free-run, 25fps | `python3 tc_relay.py --fake 00:59:50:00 --fps 25` |
 
 ---
 
@@ -369,6 +341,10 @@ python3 -c "import rtmidi; print(rtmidi.MidiIn().get_ports())"
 # use a substring of the printed port name in --mtc
 ```
 
+**RTP-MIDI session (Horae/TimeCore) not showing up as a MIDI port**
+- The relay never talks to the network directly — the OS must join the RTP-MIDI session first (Audio MIDI Setup on macOS, `rtpmidid` on Linux, the Tobias Erichsen driver on Windows)
+- Once joined it appears in `rtmidi.MidiIn().get_ports()` like any other port — if it's not there, the session wasn't joined, not a relay problem
+
 **Browser says WS connection refused**
 - Confirm the relay is running: `sudo systemctl status tc-relay`
 - Confirm the port is open: `ss -tlnp | grep 8765`
@@ -376,12 +352,7 @@ python3 -c "import rtmidi; print(rtmidi.MidiIn().get_ports())"
 
 **TC displayed but frozen in browser**
 - MTC source stopped sending — relay freewheels for 2s then freezes
-- Check MIDI cable / interface driver
-- Check `journalctl -u tc-relay -f` for reconnect attempts
-
-**Q-SYS connection drops every ~60s**
-- Confirm NoOp keepalive is reaching the Core (firewall between relay and Core?)
-- Verify QRC is enabled on the Core: Designer → File → Settings → Network → Enable External Control
+- Check MIDI cable / interface driver, or that Horae/TimeCore is still transmitting on the network session
 
 **Web MIDI (in-browser MTC) not working on LAN**
 - Chrome requires a **secure context** for Web MIDI (`https://` or `localhost`)
@@ -392,10 +363,13 @@ python3 -c "import rtmidi; print(rtmidi.MidiIn().get_ports())"
 ## Architecture summary
 
 ```
-MTC hardware ──USB/DIN──▶ python-rtmidi
-Q-SYS Core   ──TCP:1710──▶ QRC JSON-RPC   ──▶ asyncio broadcast ──▶ ws://host:8765
-Free-run generator                                                        │
-                                                                ┌─────────┼─────────┐
-                                                           Browser 1  Browser 2  Browser N
-                                                        (cue sheet HTML, any device on LAN)
+MTC hardware  ──USB/DIN───────▶ python-rtmidi
+MTC network   ──RTP-MIDI──────▶ (OS joins session, appears as a MIDI port)
+  (Horae / TimeCore)                          │
+Free-run generator                            ▼
+                                    asyncio broadcast ──▶ ws://host:8765
+                                                                │
+                                                     ┌──────────┼──────────┐
+                                                Browser 1   Browser 2   Browser N
+                                              (cue sheet HTML, any device on LAN)
 ```

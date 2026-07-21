@@ -6,8 +6,8 @@ services:
     restart: unless-stopped
     ports:
       - "${RELAY_WS_PORT:-8765}:8765"
-    # Default free-run generator — swap for --core/--component/--control
-    # (QRC) or --mtc (hardware MIDI, Linux + devices: mapping, see README)
+    # Default free-run generator — swap for --mtc (hardware/network MIDI,
+    # Linux + devices: mapping, see README)
     command: ["--fake", "01:00:00:00"]
     # Uncomment for MTC mode on a Linux host (Raspberry Pi, etc.) — USB MIDI
     # interfaces show up under ALSA as /dev/snd/*. Not usable on macOS/Windows

@@ -18,11 +18,11 @@ ENV PATH=/root/.local/bin:$PATH \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-COPY qsys_tc_relay.py .
+COPY tc_relay.py .
 
 EXPOSE 8765
-ENTRYPOINT ["python3", "qsys_tc_relay.py"]
+ENTRYPOINT ["python3", "tc_relay.py"]
 # Default: free-run generator — works with zero hardware/config, good for
 # testing the cue sheet. Override via `command:` in docker-compose.yml or
-# `docker compose run --rm relay --core ... / --mtc ...`.
+# `docker compose run --rm relay --mtc ...`.
 CMD ["--fake", "01:00:00:00"]
