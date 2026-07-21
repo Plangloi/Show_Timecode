@@ -12,7 +12,7 @@
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
   --text:#e6edf3;--dim:#8b949e;--muted:#484f58;
   --red:#f85149;--green:#3fb950;--amber:#d29922;--blue:#58a6ff;--purple:#bc8cff;
-  --accent:#2d7dd2;
+  --accent:#2d7dd2;--flag:#ff9d5c;
   --font:'SF Mono','Cascadia Code','JetBrains Mono','Fira Code',monospace;
   --sans:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
 }
@@ -34,16 +34,32 @@ body{font-family:var(--sans);min-height:100vh}
   display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px}
 .tc-center{text-align:center}
 .tc-center .clock-label{font-size:.7rem;margin-bottom:2px}
+.tc-center-row{display:flex;align-items:center;justify-content:center;gap:14px}
 .showtc{font-family:var(--font);font-size:4.4rem;font-weight:700;color:var(--muted);
   letter-spacing:.04em;line-height:1;text-shadow:0 0 24px rgba(0,0,0,.6)}
 .showtc.running{color:var(--amber);text-shadow:0 0 28px rgba(210,153,34,.35)}
 .showtc.ws{color:var(--blue);text-shadow:0 0 28px rgba(88,166,255,.35)}
 .showtc.mtc{color:var(--purple);text-shadow:0 0 28px rgba(188,140,255,.35)}
+.btn-marker{background:var(--flag);color:#000;border:none;border-radius:6px;padding:9px 16px;
+  font-size:.85rem;font-weight:700;cursor:pointer;font-family:var(--sans);letter-spacing:.03em;white-space:nowrap}
+.btn-marker:hover{opacity:.85}
+.btn-marker:active{transform:scale(.96)}
 .next-side{font-family:var(--font);font-size:.9rem;color:var(--dim);line-height:1.5}
 .next-side.now{text-align:right}
 .next-side.next{text-align:left}
 .next-side b{color:var(--text);font-weight:700}
 .next-side .big{font-size:1.5rem;color:var(--amber);font-weight:700}
+
+.marker-list{text-align:left;max-height:64px;overflow-y:auto;margin-bottom:4px}
+.marker-row{display:flex;align-items:center;justify-content:flex-start;gap:6px;font-size:.72rem;color:var(--dim);padding:1px 0}
+.marker-row:hover{color:var(--text)}
+.marker-tc{color:var(--flag);cursor:pointer;font-weight:700}
+.marker-tc:hover{text-decoration:underline}
+.marker-name{cursor:text;outline:none;min-width:20px}
+.marker-name:hover{background:rgba(88,166,255,.08)}
+.marker-name:focus{background:rgba(88,166,255,.15)}
+.marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.7rem;padding:0 2px;line-height:1}
+.marker-del:hover{color:var(--red)}
 
 .meta-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:7px 20px;display:flex;gap:22px;flex-wrap:wrap;font-size:.85rem;color:var(--dim)}
 .meta-bar b{color:var(--text);font-weight:600;margin-right:4px}
@@ -139,7 +155,7 @@ tr:hover .row-actions{opacity:1}
 .modified-flag{color:var(--amber)!important;font-weight:700}
 
 @media(max-width:768px){.header{padding:8px 12px}.showtc{font-size:2.4rem}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
-@media print{.top-bar{position:static}.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.import-info,.drag-handle,.chase-bar{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
+@media print{.top-bar{position:static}.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.import-info,.drag-handle,.chase-bar{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
 </style>
 </head>
 <body>
@@ -163,9 +179,15 @@ tr:hover .row-actions{opacity:1}
     <div class="next-side now" id="nowInfo"></div>
     <div class="tc-center">
       <div class="clock-label">Show TC <span id="tcSrcLabel"></span></div>
-      <div class="showtc" id="showTC">--:--:--:--</div>
+      <div class="tc-center-row">
+        <div class="showtc" id="showTC">--:--:--:--</div>
+        <button class="btn-marker" id="markerBtn" onclick="captureMarker()" title="Capture a marker at the current live TC (Space)">⚑ MARK</button>
+      </div>
     </div>
-    <div class="next-side next" id="nextInfo"></div>
+    <div class="next-side next" id="nextSide">
+      <div class="marker-list" id="markerList"></div>
+      <div id="nextInfo"></div>
+    </div>
   </div>
   <div class="meta-bar" id="metaBar">
     <span><b>Show:</b> <span contenteditable="true" id="mShow">—</span></span>
@@ -253,6 +275,8 @@ tr:hover .row-actions{opacity:1}
 let cues=[];
 let orderModified=false;
 let undoStack=[];
+let markers=[];
+let markerSeq=0;
 const FPS=30;
 const ACT_ANCHOR={1:3360,2:3600};
 
@@ -261,7 +285,7 @@ function hms(t){const p=t.split(':').map(Number);return p[0]*3600+p[1]*60+(p[2]|
 function tcToSec(t){if(!t)return null;const p=t.trim().split(':').map(Number);if(p.length<3||p.some(isNaN))return null;return p[0]*3600+p[1]*60+p[2]+(p[3]||0)/FPS}
 
 function loadDefaults(){
-  cues=[];orderModified=false;undoStack=[];
+  cues=[];orderModified=false;undoStack=[];markers=[];markerSeq=0;
   function add(act,kind,cue,label,ts,te,note){
     const durSec=(ts!=null&&te!=null)?hms(te)-hms(ts):null;
     cues.push({act,kind,cue,label,durSec,trigger:durSec!=null?'TC Chase':'GO',dept:'',device:'',action:'',fade:'',status:'Standby',note:note||'',tcIn:'',tcOut:'',dur:''})}
@@ -313,12 +337,12 @@ function saveState(skipBroadcast){
     try{
       const meta={};['mShow','mVenue','mProg','mMaster','mTC','mFPS'].forEach(id=>meta[id]=document.getElementById(id).textContent);
       localStorage.setItem(LS_KEY,JSON.stringify({
-        v:3,cues,orderModified,tcColor:tcColorManual,meta,
+        v:3,cues,orderModified,tcColor:tcColorManual,meta,markers,markerSeq,
         savedAt:new Date().toISOString()}));
       const el=document.getElementById('saveStamp');
       if(el)el.textContent='saved '+new Date().toLocaleTimeString();
       if(!skipBroadcast&&chase.ws&&chase.ws.readyState===WebSocket.OPEN){
-        chase.ws.send(JSON.stringify({type:'cuesheet_sync',cues,orderModified,meta,tcColor:tcColorManual}));
+        chase.ws.send(JSON.stringify({type:'cuesheet_sync',cues,orderModified,meta,tcColor:tcColorManual,markers,markerSeq}));
       }
     }catch(e){console.warn('save failed',e)}
   },300);
@@ -347,11 +371,20 @@ function applyRemoteSync(data){
     sanitizeStatuses();   // structural change (cue added/removed) — index alignment isn't reliable here, fall back to clamping stale "Running"
   }
   orderModified=!!data.orderModified;
+  if(data.markers){
+    // Markers are a live-captured event log, never overwrite wholesale —
+    // union by id so a marker this host just captured can't be dropped by a
+    // same-window snapshot from another host that doesn't know about it yet.
+    const seen=new Set(markers.map(m=>m.id));
+    data.markers.forEach(m=>{if(!seen.has(m.id)){markers.push(m);seen.add(m.id)}});
+    markers.sort((a,b)=>(b.seq||0)-(a.seq||0));
+  }
+  markerSeq=Math.max(markerSeq,data.markerSeq||0);
   recalcTC();
   if(data.meta)Object.entries(data.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val!=null)e.textContent=val});
   if(data.tcColor)setTcColor(data.tcColor);
   rebuildSceneDropdown();rebuildDeptDropdown();
-  render();
+  render();renderMarkers();
   saveState(true);
 }
 // "Running" is a chase-engine-only, transient state — it must never survive
@@ -368,6 +401,7 @@ function loadState(){
     const st=JSON.parse(raw);
     if(!st.cues||!st.cues.length)return false;
     cues=st.cues;orderModified=!!st.orderModified;
+    markers=st.markers||[];markerSeq=st.markerSeq||0;
     sanitizeStatuses();
     recalcTC();
     if(st.meta)Object.entries(st.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val)e.textContent=val});
@@ -381,7 +415,7 @@ function clearSaved(){
   try{localStorage.removeItem(LS_KEY)}catch(e){}
   loadDefaults();resetTcColor();
   ['mShow','mVenue','mProg'].forEach(id=>document.getElementById(id).textContent='—');
-  rebuildSceneDropdown();render();
+  rebuildSceneDropdown();render();renderMarkers();
   const el=document.getElementById('saveStamp');if(el)el.textContent='cleared — defaults loaded';
   toast('Saved state cleared');
 }
@@ -522,6 +556,64 @@ function nudge(d){
     document.getElementById('tcInput').value=tc2(cur+d)}
 }
 function toggleFollow(){chase.follow=!chase.follow;document.getElementById('followBtn').classList.toggle('active',chase.follow)}
+
+/* =========================================================
+   LIVE MARKERS — one-click (or Space) capture of the current
+   live TC into a named, editable list; synced like any other edit.
+   ========================================================= */
+function markerId(){return 'm'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+function captureMarker(){
+  const t=chaseNow();
+  if(t==null){toast('No live TC — start the chase or connect a source first',true);return}
+  markerSeq++;
+  const active=chase.activeIdx>=0?cues[chase.activeIdx]:null;
+  const name=(active&&active.label)?active.label:'Marker '+markerSeq;
+  const m={id:markerId(),seq:markerSeq,name,sec:t,tc:tc2(t)};
+  markers.unshift(m);
+  renderMarkers();
+  saveState();
+  toast('Marker captured @ '+m.tc+(active&&active.label?' — '+name:''));
+}
+function deleteMarker(id){
+  markers=markers.filter(m=>m.id!==id);
+  renderMarkers();saveState();
+}
+function renameMarker(id,name){
+  const m=markers.find(m=>m.id===id);if(!m)return;
+  const val=name.trim();
+  if(!val||m.name===val)return;
+  m.name=val;saveState();
+}
+function jumpToMarker(sec){
+  document.getElementById('tcInput').value=tc2(sec);
+  toast('TC input set to marker time');
+}
+function renderMarkers(){
+  const el=document.getElementById('markerList');
+  if(!el)return;
+  if(!markers.length){el.innerHTML='';return}
+  el.innerHTML=markers.map(m=>`
+    <div class="marker-row">
+      <span class="marker-tc" onclick="jumpToMarker(${m.sec})" title="Set TC input to this marker">${m.tc}</span>
+      <span class="marker-name" contenteditable="true" data-id="${m.id}">${esc(m.name)}</span>
+      <button class="marker-del" onclick="deleteMarker('${m.id}')" title="Remove marker">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.marker-name').forEach(sp=>{
+    sp.addEventListener('blur',()=>renameMarker(sp.dataset.id,sp.textContent));
+    sp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sp.blur()}});
+  });
+}
+// Spacebar = quick-trigger, unless the user is actively typing somewhere
+// (a cue field, a filter box, a marker name, ...) — then let Space type a
+// space like normal instead of hijacking it.
+document.addEventListener('keydown',e=>{
+  if(e.code!=='Space')return;
+  const ae=document.activeElement;
+  const typing=ae&&(ae.isContentEditable||['INPUT','TEXTAREA','SELECT'].includes(ae.tagName));
+  if(typing)return;
+  e.preventDefault();
+  captureMarker();
+});
 
 /* ---- TC color override ---- */
 let tcColorManual=null;
@@ -946,7 +1038,7 @@ loadState();                 /* override with persisted state if present */
 ['mShow','mVenue','mProg','mMaster','mTC','mFPS'].forEach(id=>
   document.getElementById(id).addEventListener('blur',saveState));
 rebuildSceneDropdown();
-render();
+render();renderMarkers();
 function tick(){const d=new Date();document.getElementById('clock').textContent=[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':')}
 tick();setInterval(tick,1000);
 </script>
