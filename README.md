@@ -1,5 +1,24 @@
-# Show_Timecode
-Show time code tracking
+# 🎬 Show_Timecode
+
+A **timecode-driven cue sheet for live shows.** Open `timecode_cue_sheet_4.html` in any browser and it shows a big running Show TC clock, the current and next cues, and a full editable cue table. Feed it real timecode — from Horae, a TimeCore, a MIDI interface, or the built-in test generator — and each cue lights up **🟢 Running** automatically the moment its time arrives.
+
+Everything lives in **two small pieces**:
+
+| Piece | What it is | What it does |
+|---|---|---|
+| `timecode_cue_sheet_4.html` | A single self-contained web page | The cue sheet UI — the table, clocks, markers, filters, import/export |
+| `tc_relay.py` | A small Python script | Bridges MIDI/network timecode (or a fake generator) to the browser over WebSocket |
+
+Multiple laptops/tablets on the same WiFi can open the same sheet and stay **live-synced** — edits, status, and markers appear on every screen at once.
+
+## Contents
+
+- [🎬 Quick Start — Running the Show](#-quick-start--running-the-show-zero-tech-experience-needed) — step-by-step for show operators, no tech experience needed
+- [🆘 Something's not working?](#-somethings-not-working) — quick fixes during a show
+- [Editing the cue sheet](#editing-the-cue-sheet) — adding cues, live sync, status, markers
+- [tc_relay.py — Timecode WebSocket Relay](#tc_relaypy--timecode-websocket-relay) — the timecode backend, its modes and options
+- [Docker](#docker) / [systemd](#running-as-a-systemd-service-raspberry-pi--linux) — deployment
+- [Troubleshooting](#troubleshooting) & [Architecture](#architecture-summary)
 
 ---
 
@@ -104,7 +123,7 @@ When in doubt: close the browser tab, reopen `http://localhost:8080`, and redo S
 # tc_relay.py — Timecode WebSocket Relay
 
 Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
-Used as the TC source backend for `timecode_cue_sheet.html`.
+Used as the TC source backend for `timecode_cue_sheet_4.html`.
 
 ---
 
@@ -204,7 +223,7 @@ Any other client (Node, Max/MSP, TouchOSC, etc.) can consume the same stream.
 
 ## Connecting the cue sheet
 
-In `timecode_cue_sheet.html`:
+In `timecode_cue_sheet_4.html`:
 
 1. Chase bar → **Source: WebSocket**
 2. Enter `ws://<Pi IP>:8765`
@@ -228,6 +247,14 @@ Everything's editable directly in the table — no re-import needed:
 **Live sync across hosts** — any edit (rename, add/delete/reorder, status, notes, meta fields, TC color) is pushed to every other browser connected via **Source: WebSocket** to the same relay, over that same connection — no separate setup. A browser that joins later gets the current cue sheet immediately (the relay caches the latest snapshot for new connections). The one thing that's deliberately *not* synced is the transient "Running" highlight — each host computes that itself from the shared TC feed, so it stays consistent without fighting over the wire. Hosts using **MTC (Web MIDI)** as their TC source instead of WebSocket aren't on this channel and won't send or receive edits.
 
 **Status** — a dropdown per cue: Standby / Ready / Running / Hold / Done / Cut. While a cue is the one currently under the TC playhead, its Status is **automatically forced to "Running"** (green, pulsing) — this overwrites whatever was set manually. The instant that cue's TC window ends, it reverts to **"Standby"** (not whatever it was before — a cue left on "Hold" or "Cut" will read "Standby" after the playhead passes through it). Driven purely by the chase engine, so it behaves the same regardless of TC source (Manual / WebSocket / MTC).
+
+**Live scene markers** — capture the current live timecode into a named list on the fly, handy for spotting where a moment actually landed during a run.
+
+- **Capture** — click **⚑ MARK** (top, next to the big Show TC), or just tap the **Spacebar** (as long as you're not typing in a field). The marker is stamped with the current live TC and auto-named after the cue that's running at that instant (or "Marker N" if none is).
+- **Rename** — click a marker's name and type; commits on blur or Enter.
+- **Jump** — click a marker's TC to drop that time into the Chase **TC input** box, ready to Start from there.
+- **Remove** — click the **✕** next to a marker.
+- Markers autosave and are **live-synced** across all WebSocket-connected hosts, exactly like cue edits. Capturing needs a live TC — start the chase or connect a source first, otherwise you'll get a "No live TC" notice.
 
 ---
 
