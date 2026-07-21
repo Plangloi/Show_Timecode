@@ -326,13 +326,27 @@ function saveState(skipBroadcast){
 // Cue edits (rename, add/delete/reorder, status, meta, ...) all funnel through
 // saveState() above, so hooking the broadcast there — rather than at each call
 // site — is what makes every existing and future edit path sync automatically.
-// 'Running' status is deliberately NOT trustworthy over the wire (see
-// applyRemoteSync) — it's chase-engine-local and every connected host already
-// computes it independently off the same shared TC.
 function applyRemoteSync(data){
-  cues=data.cues||cues;
+  const incoming=data.cues||cues;
+  if(incoming.length===cues.length){
+    // Same shape (no cue added/removed) — merge field-by-field instead of a
+    // wholesale replace. The relay echoes our own broadcasts back to us, so
+    // a wholesale replace would clobber this host's own just-set "Running"
+    // cue on every save. Running is chase-engine-local: keep it if this host
+    // already considers the cue active, and never adopt someone else's
+    // Running from the wire — every host derives its own independently from
+    // the shared TC on its next 100ms tick.
+    incoming.forEach((rc,i)=>{
+      const wasRunning=cues[i]&&cues[i].status==='Running';
+      cues[i]=rc;
+      if(wasRunning)cues[i].status='Running';
+      else if(cues[i].status==='Running')cues[i].status='Standby';
+    });
+  }else{
+    cues=incoming;
+    sanitizeStatuses();   // structural change (cue added/removed) — index alignment isn't reliable here, fall back to clamping stale "Running"
+  }
   orderModified=!!data.orderModified;
-  sanitizeStatuses();
   recalcTC();
   if(data.meta)Object.entries(data.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val!=null)e.textContent=val});
   if(data.tcColor)setTcColor(data.tcColor);
