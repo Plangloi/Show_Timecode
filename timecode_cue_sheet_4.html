@@ -61,29 +61,31 @@ body{font-family:var(--sans);min-height:100vh}
 .marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.7rem;padding:0 2px;line-height:1}
 .marker-del:hover{color:var(--red)}
 
-.meta-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:7px 20px;display:flex;gap:22px;flex-wrap:wrap;font-size:.85rem;color:var(--dim)}
-.meta-bar b{color:var(--text);font-weight:600;margin-right:4px}
+.meta-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:9px 20px;display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;font-size:.95rem;color:var(--dim)}
+.meta-bar>span{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 12px;white-space:nowrap}
+.meta-bar b{color:var(--dim);font-weight:600;margin-right:6px;text-transform:uppercase;font-size:.72rem;letter-spacing:.06em}
+.meta-bar>span>span{color:var(--text);font-weight:600}
 
 /* CHASE BAR */
-.chase-bar{background:#11161f;border-bottom:1px solid var(--border);padding:7px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.chase-bar label{font-size:.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
-.chase-bar input,.chase-bar select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:.85rem;font-family:var(--font)}
+.chase-bar{background:#11161f;border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap}
+.chase-bar label{font-size:.78rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.chase-bar input,.chase-bar select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:.92rem;font-family:var(--font)}
 .chase-bar input:focus,.chase-bar select:focus{outline:none;border-color:var(--amber)}
-.btn-chase{background:var(--green);color:#000;border:none;border-radius:4px;padding:5px 14px;font-size:.8rem;cursor:pointer;font-weight:700;font-family:var(--sans)}
+.btn-chase{background:var(--green);color:#000;border:none;border-radius:6px;padding:8px 18px;font-size:.9rem;cursor:pointer;font-weight:700;font-family:var(--sans)}
 .btn-chase.stop{background:var(--red);color:#fff}
 .btn-chase:hover{opacity:.85}
 .ws-dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:4px}
 .ws-dot.ok{background:var(--blue);box-shadow:0 0 6px var(--blue)}
 
-.filters{background:var(--surface);border-bottom:2px solid var(--accent);padding:7px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.filters label{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
-.filters select,.filters input[type="text"]{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:.85rem;font-family:var(--sans)}
+.filters{background:var(--surface);border-bottom:2px solid var(--accent);padding:10px 20px;display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap}
+.filters label{font-size:.78rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.filters select,.filters input[type="text"]{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:.92rem;font-family:var(--sans)}
 .filters select:focus,.filters input:focus{outline:none;border-color:var(--accent)}
-.filter-count{margin-left:auto;font-family:var(--font);font-size:.8rem;color:var(--dim)}
-.btn-sm{background:var(--surface2);color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:4px 10px;font-size:.8rem;cursor:pointer;font-family:var(--sans)}
+.filter-count{margin-left:auto;font-family:var(--font);font-size:.88rem;color:var(--dim)}
+.btn-sm{background:var(--surface2);color:var(--dim);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-size:.88rem;cursor:pointer;font-family:var(--sans)}
 .btn-sm:hover{color:var(--text);border-color:var(--accent)}
 .btn-sm.active{color:var(--amber);border-color:var(--amber)}
-.btn-import{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:4px;padding:4px 12px;font-size:.8rem;cursor:pointer;font-family:var(--sans);font-weight:600}
+.btn-import{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:6px;padding:7px 14px;font-size:.88rem;cursor:pointer;font-family:var(--sans);font-weight:600}
 .btn-import:hover{opacity:.85}
 
 .drop-overlay{display:none;position:fixed;inset:0;z-index:999;background:rgba(13,17,23,.92);align-items:center;justify-content:center;flex-direction:column;gap:12px}
@@ -206,7 +208,7 @@ tr:hover .row-actions{opacity:1}
     <button class="btn-sm" onclick="nudge(1)" title="+1s">+1s</button>
     <button class="btn-sm active" id="followBtn" onclick="toggleFollow()">⌖ Follow</button>
     <label title="TC color">🎨</label>
-    <input type="color" id="tcColor" value="#d29922" oninput="setTcColor(this.value)" style="width:32px;height:28px;padding:2px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:pointer">
+    <input type="color" id="tcColor" value="#d29922" oninput="setTcColor(this.value)" style="width:36px;height:36px;padding:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer">
     <button class="btn-sm" onclick="resetTcColor()" title="Auto color by source">Auto</button>
     <span style="color:var(--muted)">|</span>
     <label><span class="ws-dot" id="srcDot"></span>Source</label>
