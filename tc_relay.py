@@ -3,6 +3,8 @@
 tc_relay.py — Decode MTC (MIDI Time Code), broadcast to WebSocket clients.
 
 Le cue sheet HTML se connecte sur ws://<host>:8765 et reçoit {"tc": "HH:MM:SS:FF"}.
+Cue-sheet edits sent back over the same socket (type "cuesheet_sync") are relayed
+to every other connected browser, and the latest one is replayed to new joiners.
 
 Usage:
     pip install websockets python-rtmidi
@@ -19,19 +21,31 @@ Test sans matériel (générateur free-run):
 import asyncio, json, argparse, time, sys
 
 clients = set()
+last_cue_sync = None  # most recent cuesheet_sync payload, replayed to newly-joined clients
 
 async def ws_handler(websocket):
+    global last_cue_sync
     clients.add(websocket)
     try:
-        await websocket.wait_closed()
+        if last_cue_sync is not None:
+            await websocket.send(last_cue_sync)
+        async for message in websocket:
+            try:
+                if json.loads(message).get("type") == "cuesheet_sync":
+                    last_cue_sync = message
+            except (json.JSONDecodeError, AttributeError):
+                pass
+            await broadcast_raw(message)
     finally:
         clients.discard(websocket)
 
-async def broadcast(tc: str):
+async def broadcast_raw(msg: str):
     if not clients:
         return
-    msg = json.dumps({"tc": tc})
     await asyncio.gather(*(c.send(msg) for c in list(clients)), return_exceptions=True)
+
+async def broadcast(tc: str):
+    await broadcast_raw(json.dumps({"tc": tc}))
 
 # ---------------------------------------------------------------- MTC source
 async def mtc_source(port_filter: str):

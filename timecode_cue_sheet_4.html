@@ -304,7 +304,10 @@ function loadDefaults(){
    ========================================================= */
 const LS_KEY='tc_cuesheet_v3';
 let saveTimer=null;
-function saveState(){
+// skipBroadcast: true when this save originates from an *incoming* network
+// sync (applyRemoteSync) — captured into the debounce closure at call time so
+// it can't race the 300ms timer the way a shared "applying" flag would.
+function saveState(skipBroadcast){
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{
     try{
@@ -314,8 +317,28 @@ function saveState(){
         savedAt:new Date().toISOString()}));
       const el=document.getElementById('saveStamp');
       if(el)el.textContent='saved '+new Date().toLocaleTimeString();
+      if(!skipBroadcast&&chase.ws&&chase.ws.readyState===WebSocket.OPEN){
+        chase.ws.send(JSON.stringify({type:'cuesheet_sync',cues,orderModified,meta,tcColor:tcColorManual}));
+      }
     }catch(e){console.warn('save failed',e)}
   },300);
+}
+// Cue edits (rename, add/delete/reorder, status, meta, ...) all funnel through
+// saveState() above, so hooking the broadcast there — rather than at each call
+// site — is what makes every existing and future edit path sync automatically.
+// 'Running' status is deliberately NOT trustworthy over the wire (see
+// applyRemoteSync) — it's chase-engine-local and every connected host already
+// computes it independently off the same shared TC.
+function applyRemoteSync(data){
+  cues=data.cues||cues;
+  orderModified=!!data.orderModified;
+  sanitizeStatuses();
+  recalcTC();
+  if(data.meta)Object.entries(data.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val!=null)e.textContent=val});
+  if(data.tcColor)setTcColor(data.tcColor);
+  rebuildSceneDropdown();rebuildDeptDropdown();
+  render();
+  saveState(true);
 }
 // "Running" is a chase-engine-only, transient state — it must never survive
 // a page load (chase always starts stopped) or an import. If it's found in
@@ -513,8 +536,10 @@ function toggleWS(){
       document.getElementById('wsBtn').textContent='Disconnect';
       document.getElementById('tcSrcLabel').textContent='(WS)';toast('WS connected')};
     ws.onmessage=ev=>{
-      let t=ev.data;
-      try{const j=JSON.parse(ev.data);t=j.tc||j.timecode||t}catch(e){}
+      let j=null;
+      try{j=JSON.parse(ev.data)}catch(e){}
+      if(j&&j.type==='cuesheet_sync'){applyRemoteSync(j);return}
+      const t=(j&&(j.tc||j.timecode))||ev.data;
       const s=tcToSec(String(t));
       if(s!=null)chase.lastWsSec=s;
     };

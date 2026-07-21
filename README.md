@@ -225,6 +225,8 @@ Everything's editable directly in the table — no re-import needed:
 - **Edit Duration** — click the Dur cell, type `HH:MM:SS:FF`. TC In/Out for every following cue ripples forward automatically — same mechanism as drag-reordering.
 - All of the above feed the existing **⎌ Undo** button and autosave (localStorage), so none of this is riskier than a drag-reorder.
 
+**Live sync across hosts** — any edit (rename, add/delete/reorder, status, notes, meta fields, TC color) is pushed to every other browser connected via **Source: WebSocket** to the same relay, over that same connection — no separate setup. A browser that joins later gets the current cue sheet immediately (the relay caches the latest snapshot for new connections). The one thing that's deliberately *not* synced is the transient "Running" highlight — each host computes that itself from the shared TC feed, so it stays consistent without fighting over the wire. Hosts using **MTC (Web MIDI)** as their TC source instead of WebSocket aren't on this channel and won't send or receive edits.
+
 **Status** — a dropdown per cue: Standby / Ready / Running / Hold / Done / Cut. While a cue is the one currently under the TC playhead, its Status is **automatically forced to "Running"** (green, pulsing) — this overwrites whatever was set manually. The instant that cue's TC window ends, it reverts to **"Standby"** (not whatever it was before — a cue left on "Hold" or "Cut" will read "Standby" after the playhead passes through it). Driven purely by the chase engine, so it behaves the same regardless of TC source (Manual / WebSocket / MTC).
 
 ---
