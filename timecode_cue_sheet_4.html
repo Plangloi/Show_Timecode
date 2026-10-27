@@ -427,7 +427,7 @@ function recalcTC(){
   let currentAct=null,pointer=null;
   for(const c of cues){
     if(c.kind==='banner'){
-      if(c.sub!=='intermission'&&c.act){currentAct=c.act;pointer=ACT_ANCHOR[c.act]??null}
+      if(c.sub!=='intermission'&&c.act){currentAct=c.act;pointer=c.anchor??ACT_ANCHOR[c.act]??null}
       continue}
     c.act=currentAct??c.act;
     if(c.durSec==null){c.tcIn='';c.tcOut='';c.dur='';c.tcInSec=null;c.tcOutSec=null;continue}
@@ -976,6 +976,12 @@ function importXLSX(file){
         newCues.push({act:currentAct,kind,cue:cueStr,label:e_,durSec,
           trigger:f||'GO',dept:g,device:h,action:i_,fade:k,status:l||'Standby',note:m,music:mus,tcIn:b,tcOut:c_,dur:d});
       }
+      // anchor each act on the sheet's first TC In, so pre-roll rows (e.g. Preshow) keep their timecode
+      newCues.forEach((bn,i)=>{
+        if(bn.kind!=='banner'||bn.sub==='intermission')return;
+        for(let j=i+1;j<newCues.length&&newCues[j].kind!=='banner';j++){
+          const s=tcToSec(newCues[j].tcIn);
+          if(newCues[j].durSec!=null&&s!=null){bn.anchor=s;break}}});
       cues=newCues;orderModified=false;undoStack=[];
       sanitizeStatuses();
       recalcTC();rebuildSceneDropdown();rebuildDeptDropdown();resetFilters();render();
