@@ -121,7 +121,7 @@ tr.drag-over-top td{border-top:2px solid var(--green)}
 tr.drag-over-bottom td{border-bottom:2px solid var(--green)}
 
 col.c-grab{width:82px}
-col.c-cue{width:55px}col.c-tc{width:100px}col.c-dur{width:95px}col.c-label{width:210px}
+col.c-cue{width:55px}col.c-tc{width:100px}col.c-dur{width:95px}col.c-music{width:70px}col.c-label{width:210px}
 col.c-trigger{width:95px}col.c-dept{width:65px}col.c-device{width:140px}
 col.c-action{width:190px}col.c-fade{width:50px}col.c-status{width:80px}col.c-notes{min-width:150px}
 
@@ -149,6 +149,7 @@ tr:hover .row-actions{opacity:1}
 [contenteditable="true"]:empty:before{content:attr(data-ph);color:var(--muted);font-style:italic}
 
 .dur{font-family:var(--font);font-weight:600;color:var(--purple)}
+.music{font-family:var(--font);color:var(--blue)}
 .note{color:var(--dim);font-size:.8rem;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .note:hover{white-space:normal;overflow:visible}
 
@@ -256,13 +257,13 @@ tr:hover .row-actions{opacity:1}
 <div style="overflow-x:auto;padding:0 0 40px">
 <table>
 <colgroup>
-  <col class="c-grab"><col class="c-cue"><col class="c-tc"><col class="c-tc"><col class="c-dur"><col class="c-label">
+  <col class="c-grab"><col class="c-cue"><col class="c-tc"><col class="c-tc"><col class="c-dur"><col class="c-music"><col class="c-label">
   <col class="c-trigger"><col class="c-dept"><col class="c-device"><col class="c-action">
   <col class="c-fade"><col class="c-status"><col class="c-notes">
 </colgroup>
 <thead><tr>
   <th></th>
-  <th class="ctr">Cue</th><th class="tc">TC In</th><th class="tc">TC Out</th><th class="tc">Dur</th>
+  <th class="ctr">Cue</th><th class="tc">TC In</th><th class="tc">TC Out</th><th class="tc">Dur</th><th class="tc">Music</th>
   <th>Label / Scene</th><th>Trigger</th><th class="ctr">Dept</th><th>Device</th>
   <th>Action / Command</th><th class="ctr">Fade</th><th class="ctr">Status</th><th>Notes</th>
 </tr></thead>
@@ -290,7 +291,7 @@ function loadDefaults(){
   cues=[];orderModified=false;undoStack=[];markers=[];markerSeq=0;
   function add(act,kind,cue,label,ts,te,note){
     const durSec=(ts!=null&&te!=null)?hms(te)-hms(ts):null;
-    cues.push({act,kind,cue,label,durSec,trigger:durSec!=null?'TC Chase':'GO',dept:'',device:'',action:'',fade:'',status:'Standby',note:note||'',tcIn:'',tcOut:'',dur:''})}
+    cues.push({act,kind,cue,label,durSec,trigger:durSec!=null?'TC Chase':'GO',dept:'',device:'',action:'',fade:'',status:'Standby',note:note||'',music:'',tcIn:'',tcOut:'',dur:''})}
   function ban(act,sub,text){if(!text){text=sub;sub='act'}cues.push({act,kind:'banner',sub,label:text})}
   ban(1,'ACT 1  ·  Ouverture @ 01:00:00:00');
   add(1,'sub','0','Preshow (Animation)',null,null,'20:00 pre-roll, no TC');
@@ -426,7 +427,7 @@ function recalcTC(){
   let currentAct=null,pointer=null;
   for(const c of cues){
     if(c.kind==='banner'){
-      if(c.sub!=='intermission'&&c.act){currentAct=c.act;pointer=ACT_ANCHOR[c.act]??null}
+      if(c.sub!=='intermission'&&c.act){currentAct=c.act;pointer=c.anchor??ACT_ANCHOR[c.act]??null}
       continue}
     c.act=currentAct??c.act;
     if(c.durSec==null){c.tcIn='';c.tcOut='';c.dur='';c.tcInSec=null;c.tcOutSec=null;continue}
@@ -462,7 +463,7 @@ function render(){
     if(c.kind==='banner'){
       if(fa&&c.act&&String(c.act)!==fa)return;
       const bcls=c.sub==='intermission'?'banner-int':'banner-row';
-      html+=`<tr class="${bcls}" data-idx="${idx}"><td colspan="13">${esc(c.label)}</td></tr>`;return}
+      html+=`<tr class="${bcls}" data-idx="${idx}"><td colspan="14">${esc(c.label)}</td></tr>`;return}
     total++;
     if(fa&&String(c.act)!==fa)return;
     if(fd&&(c.dept||'').toLowerCase()!==fd)return;
@@ -481,6 +482,7 @@ function render(){
       <td class="ctr cue-cell">${c.kind==='trans'?'↳ ':''}${ed('cue','#')}</td>
       <td class="tc">${c.tcIn}</td><td class="tc">${c.tcOut}</td>
       <td class="tc dur"><span contenteditable="true" data-idx="${idx}" data-field="durSec" data-ph="--:--:--:--">${c.dur}</span></td>
+      <td class="tc music">${ed('music','mm:ss')}</td>
       <td class="label-cell">${ed('label','Label / Scene')}<div class="cue-progress" style="width:0"></div></td>
       <td>${ed('trigger','Trigger')}</td>
       <td class="ctr">${ed('dept','Dept')}</td><td>${ed('device','Device')}</td><td>${ed('action','Action')}</td>
@@ -878,7 +880,7 @@ function setStatus(idx,val){
 
 function blankCue(act){
   return{act,kind:'main',cue:'',label:'',durSec:30,trigger:'GO',dept:'',device:'',action:'',
-    fade:'',status:'Standby',note:'',tcIn:'',tcOut:'',dur:''};
+    fade:'',status:'Standby',note:'',music:'',tcIn:'',tcOut:'',dur:''};
 }
 function addCueAfter(idx){
   pushUndo();
@@ -921,7 +923,9 @@ function importXLSX(file){
       const ws=wb.Sheets[wsName];
       if(!ws){toast('No sheet found',true);return}
       const v=(ref)=>{const c=ws[ref];return c?String(c.v||'').trim():''};
-      const show=v('B2'),venue=v('B3'),prog=v('B4'),master=v('B5'),tcsrc=v('H3'),fps=v('H4');
+      // right-hand meta values sit next to their label (G/H in old sheets, H/I since Music Dur was added)
+      const meta=(row,label)=>{for(const col of'FGHIJ'){if(v(col+row)===label)return v(String.fromCharCode(col.charCodeAt(0)+1)+row)}return''};
+      const show=v('B2'),venue=v('B3'),prog=v('B4'),master=v('B5'),tcsrc=meta(3,'TC Source:'),fps=meta(4,'FPS:');
       if(show)document.getElementById('mShow').textContent=show;
       if(venue)document.getElementById('mVenue').textContent=venue;
       if(prog)document.getElementById('mProg').textContent=prog;
@@ -934,12 +938,25 @@ function importXLSX(file){
         const c=ws[XLSX.utils.encode_cell({r,c:0})];
         if(c&&/^cue$/i.test(String(c.v||'').trim())){hrow=r;break}}
       if(hrow<0){toast('Header row "Cue" not found',true);return}
+      // map columns by header text so inserted/moved columns (e.g. Music Dur) don't break import
+      const COL={cue:0,tcIn:1,tcOut:2,dur:3,music:-1,label:4,trigger:5,dept:6,device:7,action:8,fade:10,status:11,note:12};
+      const HDR=[['cue',/^cue$/],['tcIn',/^tc\s*in$/],['tcOut',/^tc\s*out$/],['dur',/^dur/],['music',/^music/],
+        ['label',/^label/],['trigger',/^trigger/],['dept',/^dept/],['device',/^device/],['action',/^action/],
+        ['fade',/^fade/],['status',/^status/],['note',/^notes?$/]];
+      for(let c=0;c<=range.e.c;c++){
+        const hc=ws[XLSX.utils.encode_cell({r:hrow,c})];if(!hc)continue;
+        const t=String(hc.v||'').trim().toLowerCase();
+        const hit=HDR.find(([,re])=>re.test(t));if(hit)COL[hit[0]]=c}
       const newCues=[];let currentAct=1;
       const merges=ws['!merges']||[];
       const mergedRows=new Set(merges.filter(m=>m.e.c-m.s.c>=6).map(m=>m.s.r));
       for(let r=hrow+1;r<=range.e.r;r++){
         const cell=(col)=>{const c=ws[XLSX.utils.encode_cell({r,c:col})];return c?(typeof c.v==='number'?String(c.v):String(c.v||'').trim()):''};
-        const a=cell(0),b=cell(1),c_=cell(2),d=cell(3),e_=cell(4),f=cell(5),g=cell(6),h=cell(7),i_=cell(8),k=cell(10),l=cell(11),m=cell(12);
+        const a=cell(COL.cue),b=cell(COL.tcIn),c_=cell(COL.tcOut),d=cell(COL.dur),e_=cell(COL.label),f=cell(COL.trigger),
+          g=cell(COL.dept),h=cell(COL.device),i_=cell(COL.action),k=cell(COL.fade),l=cell(COL.status),m=cell(COL.note);
+        // music may be typed as text "05:11" or as an Excel time — prefer the displayed text
+        const mc=COL.music>=0?ws[XLSX.utils.encode_cell({r,c:COL.music})]:null;
+        const mus=mc?String(mc.w||mc.v||'').trim():'';
         const isMerged=mergedRows.has(r);
         const bannerText=a||e_;
         if(isMerged||((!b)&&(!c_)&&(!e_)&&bannerText&&/^(ACT|INTER)/i.test(bannerText))){
@@ -957,8 +974,14 @@ function importXLSX(file){
         if(d){const s=tcToSec(d);if(s!=null)durSec=s}
         else{const si=tcToSec(b),so=tcToSec(c_);if(si!=null&&so!=null)durSec=so-si}
         newCues.push({act:currentAct,kind,cue:cueStr,label:e_,durSec,
-          trigger:f||'GO',dept:g,device:h,action:i_,fade:k,status:l||'Standby',note:m,tcIn:b,tcOut:c_,dur:d});
+          trigger:f||'GO',dept:g,device:h,action:i_,fade:k,status:l||'Standby',note:m,music:mus,tcIn:b,tcOut:c_,dur:d});
       }
+      // anchor each act on the sheet's first TC In, so pre-roll rows (e.g. Preshow) keep their timecode
+      newCues.forEach((bn,i)=>{
+        if(bn.kind!=='banner'||bn.sub==='intermission')return;
+        for(let j=i+1;j<newCues.length&&newCues[j].kind!=='banner';j++){
+          const s=tcToSec(newCues[j].tcIn);
+          if(newCues[j].durSec!=null&&s!=null){bn.anchor=s;break}}});
       cues=newCues;orderModified=false;undoStack=[];
       sanitizeStatuses();
       recalcTC();rebuildSceneDropdown();rebuildDeptDropdown();resetFilters();render();
@@ -997,32 +1020,32 @@ function exportXLSX(){
   const txt=id=>document.getElementById(id).textContent.trim();
   const aoa=[];
   aoa.push(['SHOW CONTROL — TIMECODE CUE SHEET']);                                   // r0
-  aoa.push(['Show:',txt('mShow')==='—'?'':txt('mShow'),'','','','','Date:',new Date().toISOString().slice(0,10)]); // r1
-  aoa.push(['Venue:',txt('mVenue')==='—'?'':txt('mVenue'),'','','','','TC Source:',txt('mTC')]);                   // r2
-  aoa.push(['Programmer:',txt('mProg')==='—'?'':txt('mProg'),'','','','','FPS:',+txt('mFPS')||30]);                // r3
-  aoa.push(['Master:',txt('mMaster'),'','','','','Version:','html-export']);                                        // r4
+  aoa.push(['Show:',txt('mShow')==='—'?'':txt('mShow'),'','','','','','Date:',new Date().toISOString().slice(0,10)]); // r1
+  aoa.push(['Venue:',txt('mVenue')==='—'?'':txt('mVenue'),'','','','','','TC Source:',txt('mTC')]);                   // r2
+  aoa.push(['Programmer:',txt('mProg')==='—'?'':txt('mProg'),'','','','','','FPS:',+txt('mFPS')||30]);                // r3
+  aoa.push(['Master:',txt('mMaster'),'','','','','','Version:','html-export']);                                        // r4
   aoa.push([]);                                                                       // r5
-  aoa.push(['Cue','TC In','TC Out','Dur','Label / Scene','Trigger','Dept','Device / System',
+  aoa.push(['Cue','TC In','TC Out','Dur','Music Dur','Label / Scene','Trigger','Dept','Device / System',
             'Action / Command','Addr / Ch','Fade','Status','Notes']);                 // r6 header
   const merges=[
-    {s:{r:0,c:0},e:{r:0,c:12}},
-    {s:{r:1,c:1},e:{r:1,c:4}},{s:{r:2,c:1},e:{r:2,c:4}},
-    {s:{r:3,c:1},e:{r:3,c:4}},{s:{r:4,c:1},e:{r:4,c:4}},
+    {s:{r:0,c:0},e:{r:0,c:13}},
+    {s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},
+    {s:{r:3,c:1},e:{r:3,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},
   ];
   let r=7;
   for(const c of cues){
     if(c.kind==='banner'){
       aoa.push([c.label]);
-      merges.push({s:{r,c:0},e:{r,c:12}});
+      merges.push({s:{r,c:0},e:{r,c:13}});
       r++;continue}
     aoa.push([
-      (c.kind==='trans'?'↳ ':'')+c.cue, c.tcIn, c.tcOut, c.dur, c.label,
+      (c.kind==='trans'?'↳ ':'')+c.cue, c.tcIn, c.tcOut, c.dur, c.music||'', c.label,
       c.trigger, c.dept, c.device, c.action, '', c.fade, c.status, c.note]);
     r++;
   }
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges']=merges;
-  ws['!cols']=[{wch:8},{wch:12},{wch:12},{wch:11},{wch:34},{wch:13},{wch:10},
+  ws['!cols']=[{wch:8},{wch:12},{wch:12},{wch:11},{wch:10},{wch:34},{wch:13},{wch:10},
                {wch:18},{wch:26},{wch:11},{wch:7},{wch:11},{wch:28}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Cues');
