@@ -181,7 +181,31 @@ On the **DOREMiDi Timecode Center (MTC-30)**, enable Art-Net TimeCode output —
 
 ---
 
-### 3. Fake — Free-run generator (no hardware needed)
+### 3. Art-Net Timecode OUT — play back from the cue sheet (e.g. to an MTC-30)
+
+The cue sheet's **Manual** transport (▶ START / ■ STOP / ±1s / typed start TC) drives an ArtTimeCode stream that the relay sends to the network, so a reader like the **MTC-30** chases the cue sheet instead of the other way round.
+
+```bash
+python3 tc_relay.py --artnet-out 10.10.11.255              # broadcast to the show subnet
+python3 tc_relay.py --artnet-out 10.10.11.214              # or unicast to the MTC-30 only
+python3 tc_relay.py --artnet --artnet-out 10.10.11.255     # combine with Art-Net IN
+```
+
+In the cue sheet:
+
+1. **Source → Manual** — an **⇢ Art-Net OUT** control appears next to it
+2. Check the URL (pre-filled with `ws://<this page's host>:8765`) → click **⇢ Art-Net OUT** (dot turns blue, toast shows the destination)
+3. Type a start TC, hit **▶ START** — the relay sends one packet per frame (30 fps, same format as the MTC-30). **■ STOP** holds the last frame, **±1s** and a new start TC locate.
+
+- The browser only sends transport changes; the **relay owns the frame clock**, so packets go out on time regardless of browser timer jitter.
+- Nothing is sent until the page sends its first transport — starting the relay never pushes a stray `00:00:00:00`.
+- On the MTC-30, set its timecode source to **Art-Net** (reader mode).
+- If the relay was started without `--artnet-out`, the page shows *"relay not started with --artnet-out"*.
+- With `--artnet` also on, the relay hears its own output, so other screens on **Source → WebSocket** follow the Manual playback too.
+
+---
+
+### 4. Fake — Free-run generator (no hardware needed)
 
 Generates TC from a given start point, incrementing in real time. Useful for testing the cue sheet without any MIDI hardware or network session.
 
@@ -346,6 +370,7 @@ Change `--mtc "MOTU"` to `--mtc "TimeCore"` (or whatever the RTP-MIDI session/po
 | MTC, custom WS port | `python3 tc_relay.py --mtc "USB MIDI" --ws-port 9000` |
 | Art-Net Timecode (MTC-30, etc.) | `python3 tc_relay.py --artnet` |
 | Art-Net, one sender only | `python3 tc_relay.py --artnet --artnet-src 10.10.11.214` |
+| Art-Net OUT from Manual transport | `python3 tc_relay.py --artnet-out 10.10.11.255` |
 | Free-run from 1h | `python3 tc_relay.py --fake 01:00:00:00` |
 | Free-run, 25fps | `python3 tc_relay.py --fake 00:59:50:00 --fps 25` |
 

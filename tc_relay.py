@@ -20,6 +20,11 @@ no MIDI driver or session to join, just be on the same subnet:
     ./tc_relay.py --artnet
     ./tc_relay.py --artnet --artnet-src 10.10.11.214   # ignore other Art-Net TC senders
 
+Art-Net Timecode OUT — the cue sheet's Manual transport (START/STOP/±1s) drives
+an ArtTimeCode stream generated here, e.g. to make an MTC-30 chase it:
+    ./tc_relay.py --artnet-out 10.10.11.255            # subnet broadcast
+    ./tc_relay.py --artnet --artnet-out 10.10.11.214   # unicast, and keep listening
+
 Test sans matériel (générateur free-run):
     ./tc_relay.py --fake 01:00:00:00
 """
@@ -27,6 +32,7 @@ import asyncio, json, argparse, time, sys, socket
 
 clients = set()
 last_cue_sync = None  # most recent cuesheet_sync payload, replayed to newly-joined clients
+artnet_out = None     # ArtnetOut when started with --artnet-out
 
 async def ws_handler(websocket):
     global last_cue_sync
@@ -36,10 +42,23 @@ async def ws_handler(websocket):
             await websocket.send(last_cue_sync)
         async for message in websocket:
             try:
-                if json.loads(message).get("type") == "cuesheet_sync":
-                    last_cue_sync = message
+                msg = json.loads(message)
+                kind = msg.get("type")
             except (json.JSONDecodeError, AttributeError):
-                pass
+                msg, kind = None, None
+            if kind == "tc_out":             # transport for Art-Net OUT — handled here, not relayed
+                if not artnet_out:
+                    status = {"ok": False, "msg": "relay not started with --artnet-out"}
+                else:
+                    try:
+                        artnet_out.update(msg)
+                        status = {"ok": True, "dest": artnet_out.dest}
+                    except (TypeError, ValueError):
+                        status = {"ok": False, "msg": "bad tc_out message"}
+                await websocket.send(json.dumps({"type": "tc_out_status", **status}))
+                continue
+            if kind == "cuesheet_sync":
+                last_cue_sync = message
             await broadcast_raw(message)
     finally:
         clients.discard(websocket)
@@ -132,6 +151,59 @@ async def artnet_source(port, src_filter=None):
             last = tc
             await broadcast(tc)
 
+# ---------------------------------------------------------------- Art-Net OUT
+class ArtnetOut:
+    """Generate ArtTimeCode from a play/stop/locate transport sent by the page.
+    The relay owns the frame clock so packets go out one per frame on time,
+    whatever the browser's timer jitter."""
+    TYPES = {24: 0, 25: 1, 30: 3}
+
+    def __init__(self, dest, port=6454):
+        self.dest, self.port = dest, port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.playing, self.base_sec, self.base_t, self.fps = False, 0.0, 0.0, 30
+        self.wake = asyncio.Event()
+
+    def update(self, msg):
+        fps = int(msg.get("fps") or 30)
+        self.fps = fps if fps in self.TYPES else 30
+        self.base_sec, self.base_t = float(msg.get("sec") or 0), time.monotonic()
+        self.playing = msg.get("state") == "play"
+        self.wake.set()
+
+    def now(self):
+        return self.base_sec + (time.monotonic() - self.base_t if self.playing else 0)
+
+    def send(self, frame):
+        fps = self.fps
+        hh, rem = divmod(frame // fps, 3600); mm, ss = divmod(rem, 60)
+        pkt = b"Art-Net\0" + b"\x00\x97" + b"\x00\x0e" + b"\x00\x00" + bytes(
+            [frame % fps, ss, mm, hh % 24, self.TYPES[fps]])
+        try:
+            self.sock.sendto(pkt, (self.dest, self.port))
+        except OSError as e:                 # e.g. not on that subnet yet — keep running
+            print(f"[artnet-out] send failed: {e}")
+
+    async def run(self):
+        print(f"[artnet-out] sending to {self.dest}:{self.port} on transport from the cue sheet")
+        await self.wake.wait()               # silent until the page sends a transport — never blast 00:00:00:00
+        while True:
+            self.wake.clear()
+            if not self.playing:
+                frame = int(self.now() * self.fps)
+                for _ in range(3):           # stop/locate: repeat the held frame, like the MTC-30 does
+                    self.send(frame)
+                await self.wake.wait()
+                continue
+            frame = int(self.now() * self.fps)
+            self.send(frame)
+            next_at = (frame + 1) / self.fps
+            try:                             # sleep to the next frame edge, or until the transport changes
+                await asyncio.wait_for(self.wake.wait(), max(0.0, next_at - self.now()))
+            except asyncio.TimeoutError:
+                pass
+
 # ---------------------------------------------------------------- fake source
 async def fake_source(start_tc: str, fps: int):
     h, m, s, f = (list(map(int, start_tc.split(":"))) + [0, 0, 0, 0])[:4]
@@ -155,13 +227,24 @@ async def main():
     ap.add_argument("--artnet", action="store_true", help="Decode Art-Net Timecode (UDP broadcast)")
     ap.add_argument("--artnet-port", type=int, default=6454)
     ap.add_argument("--artnet-src", metavar="IP", help="Only accept Art-Net TC from this sender")
+    ap.add_argument("--artnet-out", metavar="IP", help="Send Art-Net TC driven by the cue sheet's Manual transport "
+                                                       "(subnet broadcast like 10.10.11.255, or a device IP)")
     ap.add_argument("--fps", type=int, default=30)
     args = ap.parse_args()
 
-    if sum(map(bool, (args.fake, args.mtc, args.artnet))) != 1:
-        ap.error("exactly one of --mtc, --artnet or --fake required")
+    n_src = sum(map(bool, (args.fake, args.mtc, args.artnet)))
+    if n_src > 1 or (n_src == 0 and not args.artnet_out):
+        ap.error("one of --mtc, --artnet or --fake required (or --artnet-out alone)")
 
-    if args.fake:
+    global artnet_out
+    tasks = []
+    if args.artnet_out:
+        artnet_out = ArtnetOut(args.artnet_out)
+        tasks.append(artnet_out.run())
+
+    if not n_src:
+        src = None
+    elif args.fake:
         src = fake_source(args.fake, args.fps)
     elif args.artnet:
         src = artnet_source(args.artnet_port, args.artnet_src)
@@ -170,7 +253,9 @@ async def main():
 
     async with websockets.serve(ws_handler, "0.0.0.0", args.ws_port):
         print(f"[ws] broadcasting on ws://0.0.0.0:{args.ws_port}")
-        await src
+        if src:
+            tasks.append(src)
+        await (asyncio.gather(*tasks) if tasks else asyncio.Future())
 
 if __name__ == "__main__":
     try:
