@@ -50,15 +50,31 @@ body{font-family:var(--sans);min-height:100vh}
 .next-side b{color:var(--text);font-weight:700}
 .next-side .big{font-size:1.5rem;color:var(--amber);font-weight:700}
 
-.marker-list{text-align:left;max-height:64px;overflow-y:auto;margin-bottom:4px}
-.marker-row{display:flex;align-items:center;justify-content:flex-start;gap:6px;font-size:.72rem;color:var(--dim);padding:1px 0}
+/* MARKER PANEL — docked right, closable; page content shifts left while open */
+body.markers-open{padding-right:280px}
+.marker-panel{position:fixed;top:0;right:0;bottom:0;width:280px;z-index:150;background:var(--surface);
+  border-left:1px solid var(--border);display:none;flex-direction:column}
+body.markers-open .marker-panel{display:flex}
+.marker-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;
+  border-bottom:1px solid var(--border);font-family:var(--font);font-size:.85rem;font-weight:700;color:var(--flag);letter-spacing:.05em}
+.marker-panel-close{background:none;border:1px solid var(--border);color:var(--dim);border-radius:4px;
+  width:24px;height:24px;cursor:pointer;font-size:.8rem;line-height:1}
+.marker-panel-close:hover{color:var(--text);border-color:var(--accent)}
+.marker-list{flex:1;overflow-y:auto;padding:6px 12px;text-align:left}
+.marker-empty{color:var(--muted);font-size:.8rem;font-style:italic;padding:8px 0}
+.btn-marker-list{background:none;border:1px solid var(--flag);color:var(--flag);border-radius:6px;padding:8px 12px;
+  font-size:.8rem;font-weight:700;cursor:pointer;font-family:var(--sans);white-space:nowrap}
+.btn-marker-list:hover{background:rgba(255,157,92,.12)}
+body.markers-open .btn-marker-list{display:none}
+.marker-row{display:flex;align-items:center;justify-content:flex-start;gap:8px;font-size:.85rem;color:var(--dim);padding:4px 0;border-bottom:1px solid var(--border)}
 .marker-row:hover{color:var(--text)}
 .marker-tc{color:var(--flag);cursor:pointer;font-weight:700}
 .marker-tc:hover{text-decoration:underline}
 .marker-name{cursor:text;outline:none;min-width:20px}
 .marker-name:hover{background:rgba(88,166,255,.08)}
 .marker-name:focus{background:rgba(88,166,255,.15)}
-.marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.7rem;padding:0 2px;line-height:1}
+.marker-name{flex:1}
+.marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:0 2px;line-height:1}
 .marker-del:hover{color:var(--red)}
 
 .meta-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:9px 20px;display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;font-size:.95rem;color:var(--dim)}
@@ -157,8 +173,8 @@ tr:hover .row-actions{opacity:1}
 .import-info span{color:var(--green)}
 .modified-flag{color:var(--amber)!important;font-weight:700}
 
-@media(max-width:768px){.header{padding:8px 12px}.showtc{font-size:2.4rem}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
-@media print{.top-bar{position:static}.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.import-info,.drag-handle,.chase-bar{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
+@media(max-width:768px){body.markers-open{padding-right:0}.marker-panel{width:100%;max-width:320px;box-shadow:-8px 0 24px rgba(0,0,0,.5)}.header{padding:8px 12px}.showtc{font-size:2.4rem}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
+@media print{.top-bar{position:static}.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.btn-marker-list,.marker-panel,.import-info,.drag-handle,.chase-bar{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
 </style>
 </head>
 <body>
@@ -167,6 +183,11 @@ tr:hover .row-actions{opacity:1}
   <div class="drop-box"><h2>DROP .XLSX</h2><p>Release to import cue sheet</p></div>
 </div>
 <div class="toast" id="toast"></div>
+<aside class="marker-panel" id="markerPanel">
+  <div class="marker-panel-head"><span>⚑ MARKERS (<span id="markerCount">0</span>)</span>
+    <button class="marker-panel-close" onclick="setMarkerPanel(false)" title="Close marker list">✕</button></div>
+  <div class="marker-list" id="markerList"></div>
+</aside>
 
 <div class="top-bar" id="topBar">
   <div class="header">
@@ -185,10 +206,10 @@ tr:hover .row-actions{opacity:1}
       <div class="tc-center-row">
         <div class="showtc" id="showTC">--:--:--:--</div>
         <button class="btn-marker" id="markerBtn" onclick="captureMarker()" title="Capture a marker at the current live TC (Space)">⚑ MARK</button>
+        <button class="btn-marker-list" id="markerListBtn" onclick="setMarkerPanel(true)" title="Show marker list">⚑ List (0)</button>
       </div>
     </div>
     <div class="next-side next" id="nextSide">
-      <div class="marker-list" id="markerList"></div>
       <div id="nextInfo"></div>
     </div>
   </div>
@@ -592,10 +613,18 @@ function jumpToMarker(sec){
   document.getElementById('tcInput').value=tc2(sec);
   toast('TC input set to marker time');
 }
+// open/closed is a per-browser preference, not part of the synced show state
+const MARKER_PANEL_KEY='tc_cuesheet_marker_panel';
+function setMarkerPanel(open){
+  document.body.classList.toggle('markers-open',open);
+  try{localStorage.setItem(MARKER_PANEL_KEY,open?'1':'0')}catch(e){}
+}
 function renderMarkers(){
   const el=document.getElementById('markerList');
   if(!el)return;
-  if(!markers.length){el.innerHTML='';return}
+  document.getElementById('markerCount').textContent=markers.length;
+  document.getElementById('markerListBtn').textContent=`⚑ List (${markers.length})`;
+  if(!markers.length){el.innerHTML='<div class="marker-empty">No markers yet — press ⚑ MARK or Space</div>';return}
   el.innerHTML=markers.map(m=>`
     <div class="marker-row">
       <span class="marker-tc" onclick="jumpToMarker(${m.sec})" title="Set TC input to this marker">${m.tc}</span>
@@ -1064,6 +1093,7 @@ loadState();                 /* override with persisted state if present */
   document.getElementById(id).addEventListener('blur',saveState));
 rebuildSceneDropdown();
 render();renderMarkers();
+{let open=true;try{open=localStorage.getItem(MARKER_PANEL_KEY)!=='0'}catch(e){}setMarkerPanel(open)}
 function tick(){const d=new Date();document.getElementById('clock').textContent=[d.getHours(),d.getMinutes(),d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':')}
 tick();setInterval(tick,1000);
 </script>
