@@ -103,7 +103,7 @@ When in doubt: close the browser tab, reopen `http://localhost:8080`, and redo S
 
 # tc_relay.py — Timecode WebSocket Relay
 
-Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
+Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — **Art-Net Timecode**, or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
 Used as the TC source backend for `timecode_cue_sheet.html`.
 
 ---
@@ -112,7 +112,7 @@ Used as the TC source backend for `timecode_cue_sheet.html`.
 
 ```bash
 pip install websockets          # all modes
-pip install python-rtmidi       # MTC mode only
+pip install python-rtmidi       # MTC mode only (Art-Net needs nothing extra)
 ```
 
 > **Raspberry Pi / Debian:** add `--break-system-packages` if using system Python.
@@ -164,7 +164,24 @@ python3 tc_relay.py --mtc "TimeCore"
 
 ---
 
-### 2. Fake — Free-run generator (no hardware needed)
+### 2. Art-Net Timecode — straight off the network (e.g. DOREMiDi MTC-30)
+
+Listens for **ArtTimeCode** (OpCode `0x9700`) on UDP **6454**. No MIDI driver, no session to join — the sender broadcasts one packet per frame to the subnet, the relay just has to be on that subnet. Framerate (24 / 25 / 29.97DF / 30) comes from the packet.
+
+```bash
+python3 tc_relay.py --artnet
+python3 tc_relay.py --artnet --artnet-src 10.10.11.214   # only this sender (others on the net are ignored)
+```
+
+On the **DOREMiDi Timecode Center (MTC-30)**, enable Art-Net TimeCode output — it broadcasts to the subnet (e.g. `10.10.11.255`). The relay logs `[artnet] timecode from <ip> @ <fps> fps` on the first packet, so you know it's hearing it.
+
+- Port 6454 is opened with `SO_REUSEPORT`, so a lighting app on the same machine can still listen to Art-Net.
+- The machine running the relay must be on the **same subnet** as the sender (broadcast doesn't cross routers).
+- macOS may ask to allow incoming connections for Python the first time — click **Allow**.
+
+---
+
+### 3. Fake — Free-run generator (no hardware needed)
 
 Generates TC from a given start point, incrementing in real time. Useful for testing the cue sheet without any MIDI hardware or network session.
 
@@ -272,6 +289,8 @@ then `docker compose up -d` to apply.
 
 **Fake mode works anywhere** — generated data, no L2 or USB dependency, so default bridge networking is fine on any Docker host, including Docker Desktop on macOS.
 
+**Art-Net mode needs the host's network** — broadcast packets don't reach a container behind Docker's bridge NAT. On a Linux host, add `network_mode: host` to the relay service (and drop its `ports:`, host mode publishes 8765 directly) with `command: ["--artnet"]`. On macOS, run `tc_relay.py --artnet` natively instead.
+
 **MTC mode needs Linux + USB/network MIDI passthrough** — MIDI access doesn't cross the Docker Desktop macOS VM boundary cleanly. On a Linux host, uncomment in `docker-compose.yml`:
 
 ```yaml
@@ -325,6 +344,8 @@ Change `--mtc "MOTU"` to `--mtc "TimeCore"` (or whatever the RTP-MIDI session/po
 | MTC from MOTU interface | `python3 tc_relay.py --mtc "MOTU"` |
 | MTC over RTP-MIDI (Horae/TimeCore) | `python3 tc_relay.py --mtc "TimeCore"` |
 | MTC, custom WS port | `python3 tc_relay.py --mtc "USB MIDI" --ws-port 9000` |
+| Art-Net Timecode (MTC-30, etc.) | `python3 tc_relay.py --artnet` |
+| Art-Net, one sender only | `python3 tc_relay.py --artnet --artnet-src 10.10.11.214` |
 | Free-run from 1h | `python3 tc_relay.py --fake 01:00:00:00` |
 | Free-run, 25fps | `python3 tc_relay.py --fake 00:59:50:00 --fps 25` |
 

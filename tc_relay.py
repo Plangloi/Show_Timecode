@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tc_relay.py — Decode MTC (MIDI Time Code), broadcast to WebSocket clients.
+tc_relay.py — Decode MTC (MIDI Time Code) or Art-Net Timecode, broadcast to WebSocket clients.
 
 Le cue sheet HTML se connecte sur ws://<host>:8765 et reçoit {"tc": "HH:MM:SS:FF"}.
 Cue-sheet edits sent back over the same socket (type "cuesheet_sync") are relayed
@@ -15,10 +15,15 @@ MTC source can be a local MIDI port, an IAC/virtual bus, or an RTP-MIDI
 an RTP-MIDI session the same way, it just needs to be joined at the OS level
 first (see README). Once joined it shows up as a regular MIDI port name.
 
+Art-Net Timecode (ArtTimeCode, UDP 6454) — e.g. DOREMiDi Timecode Center MTC-30,
+no MIDI driver or session to join, just be on the same subnet:
+    ./tc_relay.py --artnet
+    ./tc_relay.py --artnet --artnet-src 10.10.11.214   # ignore other Art-Net TC senders
+
 Test sans matériel (générateur free-run):
     ./tc_relay.py --fake 01:00:00:00
 """
-import asyncio, json, argparse, time, sys
+import asyncio, json, argparse, time, sys, socket
 
 clients = set()
 last_cue_sync = None  # most recent cuesheet_sync payload, replayed to newly-joined clients
@@ -91,6 +96,42 @@ async def mtc_source(port_filter: str):
         ff = int((sec % 1) * fps)
         await broadcast(f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}")
 
+# ---------------------------------------------------------------- Art-Net source
+async def artnet_source(port, src_filter=None):
+    """Decode Art-Net Timecode (OpCode 0x9700, OpTimeCode). Senders broadcast
+    one packet per frame on UDP 6454 — no extra deps, plain socket."""
+    RATES = [24, 25, 29.97, 30]
+    loop = asyncio.get_running_loop()
+    queue = asyncio.Queue()
+
+    class Proto(asyncio.DatagramProtocol):
+        def datagram_received(self, data, addr):
+            if src_filter and addr[0] != src_filter:
+                return
+            # "Art-Net\0" | OpCode LE | ProtVer | Filler1 | StreamId | Frames Secs Mins Hours Type
+            if len(data) < 19 or data[:8] != b"Art-Net\0" or data[8:10] != b"\x00\x97":
+                return
+            ff, ss, mm, hh, typ = data[14:19]
+            queue.put_nowait((f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}", RATES[typ & 0x3], addr[0]))
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if hasattr(socket, "SO_REUSEPORT"):  # share 6454 with a lighting app on the same host
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    sock.bind(("0.0.0.0", port))
+    await loop.create_datagram_endpoint(Proto, sock=sock)
+    print(f"[artnet] listening on udp/{port}" + (f" from {src_filter}" if src_filter else ""))
+
+    last, seen = None, None
+    while True:
+        tc, fps, src = await queue.get()
+        if seen != (src, fps):
+            seen = (src, fps)
+            print(f"[artnet] timecode from {src} @ {fps} fps")
+        if tc != last:                       # sender repeats the frame while stopped
+            last = tc
+            await broadcast(tc)
+
 # ---------------------------------------------------------------- fake source
 async def fake_source(start_tc: str, fps: int):
     h, m, s, f = (list(map(int, start_tc.split(":"))) + [0, 0, 0, 0])[:4]
@@ -111,14 +152,19 @@ async def main():
     ap.add_argument("--ws-port", type=int, default=8765)
     ap.add_argument("--fake", metavar="HH:MM:SS:FF", help="Free-run generator (no hardware needed)")
     ap.add_argument("--mtc", metavar="PORT_NAME", help="Decode MTC from MIDI input (substring match)")
+    ap.add_argument("--artnet", action="store_true", help="Decode Art-Net Timecode (UDP broadcast)")
+    ap.add_argument("--artnet-port", type=int, default=6454)
+    ap.add_argument("--artnet-src", metavar="IP", help="Only accept Art-Net TC from this sender")
     ap.add_argument("--fps", type=int, default=30)
     args = ap.parse_args()
 
-    if not (args.fake or args.mtc):
-        ap.error("--mtc or --fake required")
+    if sum(map(bool, (args.fake, args.mtc, args.artnet))) != 1:
+        ap.error("exactly one of --mtc, --artnet or --fake required")
 
     if args.fake:
         src = fake_source(args.fake, args.fps)
+    elif args.artnet:
+        src = artnet_source(args.artnet_port, args.artnet_src)
     else:
         src = mtc_source(args.mtc)
 
