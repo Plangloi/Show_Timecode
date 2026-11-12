@@ -23,6 +23,6 @@ services:
     container_name: tc-cuesheet
     restart: unless-stopped
     ports:
-      - "${CUESHEET_PORT:-8080}:80"
+      - "${CUESHEET_PORT:-8085}:80"
     volumes:
       - ./timecode_cue_sheet_4.html:/usr/share/nginx/html/index.html:ro

@@ -65,7 +65,7 @@ Leave that Terminal window open in the background while the show runs.
 In your web browser, go to:
 
 ```
-http://localhost:8080
+http://localhost:8085
 ```
 
 *(Someone viewing from a different laptop/tablet on the same WiFi? Use the show computer's network address instead of `localhost` — ask iPat for that number if you don't have it.)*
@@ -97,7 +97,7 @@ That's it — you're ready for the show. 🎬✨
 | `launchctl list \| grep tc-relay` shows nothing, and manual start doesn't help either | Ask iPat — this needs the one-time setup checked | 📞 |
 | Cues never turn green even though the clock is moving | Wrong Act selected | Check the **Act** dropdown next to the ▶️ START button matches the act actually playing |
 
-When in doubt: close the browser tab, reopen `http://localhost:8080`, and redo Steps 5–6. That fixes almost everything. 🔄
+When in doubt: close the browser tab, reopen `http://localhost:8085`, and redo Steps 5–6. That fixes almost everything. 🔄
 
 ---
 
@@ -257,9 +257,9 @@ docker compose up -d --build
 ```
 
 - Relay: `ws://<host>:8765` — defaults to the free-run generator from `01:00:00:00`, so it works out of the box with zero hardware/config, good for testing the cue sheet.
-- Cue sheet UI: `http://<host>:8080`
+- Cue sheet UI: `http://<host>:8085`
 
-**Changing ports** — both are env-var driven (`${RELAY_WS_PORT:-8765}` / `${CUESHEET_PORT:-8080}` in `docker-compose.yml`):
+**Changing ports** — both are env-var driven (`${RELAY_WS_PORT:-8765}` / `${CUESHEET_PORT:-8085}` in `docker-compose.yml`):
 
 ```bash
 CUESHEET_PORT=9090 docker compose up -d          # one-off, this run only
