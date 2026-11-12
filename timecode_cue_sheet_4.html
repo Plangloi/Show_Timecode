@@ -253,6 +253,11 @@ tr:hover .row-actions{opacity:1}
       <button class="btn-sm" id="mtcBtn" onclick="toggleMTC()">Listen</button>
       <span id="mtcRate" style="font-family:var(--font);font-size:.75rem;color:var(--dim)"></span>
     </span>
+    <span id="outFields" title="Send the Manual transport as Art-Net Timecode — the relay must run with --artnet-out">
+      <span class="ws-dot" id="outDot"></span>
+      <input type="text" id="outUrl" placeholder="ws://relay-host:8765" size="16">
+      <button class="btn-sm" id="outBtn" onclick="toggleArtnetOut()">⇢ Art-Net OUT</button>
+    </span>
   </div>
   <div class="filters">
     <button class="btn-import" onclick="document.getElementById('fileIn').click()">⬆ Import XLSX</button>
@@ -547,6 +552,7 @@ function rebuildDeptDropdown(){
    TC CHASE ENGINE
    ========================================================= */
 let chase={running:false,baseSec:0,baseTime:0,ws:null,wsActive:false,lastWsSec:null,
+  outWs:null,outHold:null,
   midi:null,midiInput:null,mtcActive:false,lastMtcSec:null,lastMtcAt:0,mtcFps:30,
   follow:true,activeIdx:-1};
 
@@ -566,25 +572,62 @@ function protoChanged(){
   const p=document.getElementById('tcProto').value;
   document.getElementById('wsFields').style.display=p==='ws'?'inline':'none';
   document.getElementById('mtcFields').style.display=p==='mtc'?'inline':'none';
+  document.getElementById('outFields').style.display=p==='manual'?'inline':'none';
   if(p!=='ws'&&chase.ws)chase.ws.close();
+  if(p!=='manual'&&chase.outWs)chase.outWs.close();
   if(p!=='mtc'&&chase.mtcActive)stopMTC();
   if(p==='mtc')initMIDI();
 }
 
 function toggleChase(){
   const btn=document.getElementById('chaseBtn');
-  if(chase.running){chase.running=false;btn.textContent='▶ START';btn.classList.remove('stop');updateChaseUI();return}
+  if(chase.running){chase.outHold=chaseNow();chase.running=false;btn.textContent='▶ START';btn.classList.remove('stop');updateChaseUI();sendTcOut();return}
   const inp=document.getElementById('tcInput').value.trim();
   let sec=inp?tcToSec(inp):null;
   if(sec==null)sec=ACT_ANCHOR[+document.getElementById('chaseAct').value];
   chase.baseSec=sec;chase.baseTime=performance.now();chase.running=true;
   btn.textContent='■ STOP';btn.classList.add('stop');
+  sendTcOut();
 }
 function nudge(d){
   if(chase.running){chase.baseSec+=d}
   else{const cur=tcToSec(document.getElementById('tcInput').value)||ACT_ANCHOR[+document.getElementById('chaseAct').value];
-    document.getElementById('tcInput').value=tc2(cur+d)}
+    document.getElementById('tcInput').value=tc2(cur+d);chase.outHold=cur+d}
+  sendTcOut();
 }
+document.getElementById('tcInput').addEventListener('change',e=>{
+  const s=tcToSec(e.target.value);
+  if(!chase.running&&s!=null){chase.outHold=s;sendTcOut()}
+});
+
+/* ---- Art-Net OUT — the relay (--artnet-out) generates ArtTimeCode frames;
+   the page only sends transport changes: play / stop / locate ---- */
+function sendTcOut(){
+  const w=chase.outWs;if(!w||w.readyState!==WebSocket.OPEN)return;
+  const sec=chase.running?chaseNow()
+    :(chase.outHold??tcToSec(document.getElementById('tcInput').value)??ACT_ANCHOR[+document.getElementById('chaseAct').value]);
+  w.send(JSON.stringify({type:'tc_out',state:chase.running?'play':'stop',sec,fps:FPS}));
+}
+function toggleArtnetOut(){
+  if(chase.outWs){chase.outWs.close();return}
+  const url=document.getElementById('outUrl').value.trim();
+  if(!url){toast('Enter the relay ws:// URL',true);return}
+  let ws;
+  try{ws=new WebSocket(url)}catch(e){toast('Bad WS URL',true);return}
+  let announced=false;
+  const btn=document.getElementById('outBtn');
+  ws.onopen=()=>{document.getElementById('outDot').classList.add('ok');btn.classList.add('active');sendTcOut()};
+  ws.onmessage=ev=>{
+    let j=null;try{j=JSON.parse(ev.data)}catch(e){return}
+    if(!j||j.type!=='tc_out_status')return;   // TC / cue-sheet sync from other hosts: not ours
+    if(!j.ok){toast('Art-Net OUT: '+j.msg,true);ws.close();return}
+    if(!announced){announced=true;toast('Art-Net OUT → '+j.dest)}
+  };
+  ws.onclose=()=>{chase.outWs=null;document.getElementById('outDot').classList.remove('ok');btn.classList.remove('active')};
+  ws.onerror=()=>toast('Art-Net OUT: relay unreachable',true);
+  chase.outWs=ws;
+}
+document.getElementById('outUrl').value=`ws://${location.hostname||'localhost'}:8765`;
 function toggleFollow(){chase.follow=!chase.follow;document.getElementById('followBtn').classList.toggle('active',chase.follow)}
 
 /* =========================================================
