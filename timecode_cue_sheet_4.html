@@ -51,10 +51,14 @@ body{font-family:var(--sans);min-height:100vh}
 .next-side .big{font-size:1.5rem;color:var(--amber);font-weight:700}
 
 /* MARKER PANEL — docked right, closable; page content shifts left while open */
-body.markers-open{padding-right:280px}
-.marker-panel{position:fixed;top:0;right:0;bottom:0;width:280px;z-index:150;background:var(--surface);
+body{--marker-w:280px}
+body.markers-open{padding-right:var(--marker-w)}
+.marker-panel{position:fixed;top:0;right:0;bottom:0;width:var(--marker-w);z-index:150;background:var(--surface);
   border-left:1px solid var(--border);display:none;flex-direction:column}
 body.markers-open .marker-panel{display:flex}
+.marker-resize{position:absolute;top:0;bottom:0;left:-3px;width:6px;cursor:col-resize;z-index:1}
+.marker-resize:hover,.marker-resize.dragging{background:var(--accent)}
+body.resizing-markers{cursor:col-resize;user-select:none}
 .marker-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;
   border-bottom:1px solid var(--border);font-family:var(--font);font-size:.85rem;font-weight:700;color:var(--flag);letter-spacing:.05em}
 .marker-panel-close{background:none;border:1px solid var(--border);color:var(--dim);border-radius:4px;
@@ -173,7 +177,7 @@ tr:hover .row-actions{opacity:1}
 .import-info span{color:var(--green)}
 .modified-flag{color:var(--amber)!important;font-weight:700}
 
-@media(max-width:768px){body.markers-open{padding-right:0}.marker-panel{width:100%;max-width:320px;box-shadow:-8px 0 24px rgba(0,0,0,.5)}.header{padding:8px 12px}.showtc{font-size:2.4rem}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
+@media(max-width:768px){body.markers-open{padding-right:0}.marker-resize{display:none}.marker-panel{width:100%;max-width:320px;box-shadow:-8px 0 24px rgba(0,0,0,.5)}.header{padding:8px 12px}.showtc{font-size:2.4rem}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
 @media print{.top-bar{position:static}.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.btn-marker-list,.marker-panel,.import-info,.drag-handle,.chase-bar{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
 </style>
 </head>
@@ -184,6 +188,7 @@ tr:hover .row-actions{opacity:1}
 </div>
 <div class="toast" id="toast"></div>
 <aside class="marker-panel" id="markerPanel">
+  <div class="marker-resize" id="markerResize" title="Drag to resize · double-click to reset"></div>
   <div class="marker-panel-head"><span>⚑ MARKERS (<span id="markerCount">0</span>)</span>
     <button class="marker-panel-close" onclick="setMarkerPanel(false)" title="Close marker list">✕</button></div>
   <div class="marker-list" id="markerList"></div>
@@ -619,6 +624,31 @@ function setMarkerPanel(open){
   document.body.classList.toggle('markers-open',open);
   try{localStorage.setItem(MARKER_PANEL_KEY,open?'1':'0')}catch(e){}
 }
+// panel width — drag the left edge; per-browser like the open/closed state
+const MARKER_WIDTH_KEY='tc_cuesheet_marker_width',MARKER_W_DEFAULT=280;
+function setMarkerWidth(w,save){
+  w=Math.round(Math.max(200,Math.min(w,window.innerWidth*0.7)));
+  document.body.style.setProperty('--marker-w',w+'px');
+  if(save){try{localStorage.setItem(MARKER_WIDTH_KEY,String(w))}catch(e){}}
+}
+(function(){
+  const h=document.getElementById('markerResize');
+  h.addEventListener('pointerdown',e=>{
+    e.preventDefault();h.setPointerCapture(e.pointerId);
+    h.classList.add('dragging');document.body.classList.add('resizing-markers')});
+  h.addEventListener('pointermove',e=>{
+    if(!h.hasPointerCapture(e.pointerId))return;
+    setMarkerWidth(window.innerWidth-e.clientX,false)});
+  const end=e=>{
+    if(!h.hasPointerCapture(e.pointerId))return;
+    h.releasePointerCapture(e.pointerId);
+    h.classList.remove('dragging');document.body.classList.remove('resizing-markers');
+    setMarkerWidth(window.innerWidth-e.clientX,true)};
+  h.addEventListener('pointerup',end);h.addEventListener('pointercancel',end);
+  h.addEventListener('dblclick',()=>setMarkerWidth(MARKER_W_DEFAULT,true));
+  let w=MARKER_W_DEFAULT;try{w=+localStorage.getItem(MARKER_WIDTH_KEY)||MARKER_W_DEFAULT}catch(e){}
+  setMarkerWidth(w,false);
+})();
 function renderMarkers(){
   const el=document.getElementById('markerList');
   if(!el)return;
