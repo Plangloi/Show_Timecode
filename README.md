@@ -290,6 +290,8 @@ The toolbar **✎ Edit** button switches the table between two modes (remembered
 - **Delete a cue** — hover a row, click **✕** (confirms first).
 - **Rename / edit fields** — click into Cue#, Label/Scene, Trigger, Dept, Device, Action, Fade, or Notes and type. Commits on blur or Enter.
 - **Edit Duration** — click the Dur cell, type `HH:MM:SS:FF`. TC In/Out for every following cue ripples forward automatically — same mechanism as drag-reordering.
+- **Edit TC Out** — sets that cue's duration (its TC In stays put); following cues ripple.
+- **Edit TC In** — the *previous* cue's duration stretches/shrinks so this cue starts there and keeps its own length; following cues ripple. On the **first cue of an act** it moves the whole act's start time instead.
 - All of the above feed the existing **⎌ Undo** button and autosave (localStorage), so none of this is riskier than a drag-reorder.
 
 **Live sync across hosts** — any edit (rename, add/delete/reorder, status, notes, meta fields, TC color) is pushed to every other browser connected via **Source: WebSocket** to the same relay, over that same connection — no separate setup. A browser that joins later gets the current cue sheet immediately (the relay caches the latest snapshot for new connections). The one thing that's deliberately *not* synced is the transient "Running" highlight — each host computes that itself from the shared TC feed, so it stays consistent without fighting over the wire. Hosts using **MTC (Web MIDI)** as their TC source instead of WebSocket aren't on this channel and won't send or receive edits.

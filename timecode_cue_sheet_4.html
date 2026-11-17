@@ -30,12 +30,12 @@ body{font-family:var(--sans);min-height:100vh}
 .clock{font-family:var(--font);font-size:1.3rem;font-weight:700;color:var(--green);letter-spacing:.06em}
 
 /* CENTERED SHOW TC BAND */
-.tc-band{background:#0a0d13;border-bottom:1px solid var(--border);padding:10px 20px;
+.tc-band{position:relative;background:#0a0d13;border-bottom:1px solid var(--border);padding:10px 20px 14px;
   display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px}
 .tc-center{text-align:center}
 .tc-center .clock-label{font-size:.7rem;margin-bottom:2px}
 .tc-center-row{display:flex;align-items:center;justify-content:center;gap:14px}
-.showtc{font-family:var(--font);font-size:4.4rem;font-weight:700;color:var(--muted);
+.showtc{font-family:var(--font);font-size:calc(4.4rem * var(--tc-scale,1));font-weight:700;color:var(--muted);
   letter-spacing:.04em;line-height:1;text-shadow:0 0 24px rgba(0,0,0,.6)}
 .showtc.running{color:var(--amber);text-shadow:0 0 28px rgba(210,153,34,.35)}
 .showtc.ws{color:var(--blue);text-shadow:0 0 28px rgba(88,166,255,.35)}
@@ -44,11 +44,11 @@ body{font-family:var(--sans);min-height:100vh}
   font-size:.85rem;font-weight:700;cursor:pointer;font-family:var(--sans);letter-spacing:.03em;white-space:nowrap}
 .btn-marker:hover{opacity:.85}
 .btn-marker:active{transform:scale(.96)}
-.next-side{font-family:var(--font);font-size:.9rem;color:var(--dim);line-height:1.5}
+.next-side{font-family:var(--font);font-size:calc(.9rem * var(--tc-side-scale,1));color:var(--dim);line-height:1.5}
 .next-side.now{text-align:right}
 .next-side.next{text-align:left}
 .next-side b{color:var(--text);font-weight:700}
-.next-side .big{font-size:1.5rem;color:var(--amber);font-weight:700}
+.next-side .big{font-size:calc(1.5rem * var(--tc-side-scale,1));color:var(--amber);font-weight:700}
 
 /* MARKER PANEL — docked right, closable; page content shifts left while open */
 body{--marker-w:280px}
@@ -58,6 +58,12 @@ body.markers-open{padding-right:var(--marker-w)}
 body.markers-open .marker-panel{display:flex}
 .marker-resize{position:absolute;top:0;bottom:0;left:-3px;width:6px;cursor:col-resize;z-index:1}
 .marker-resize:hover,.marker-resize.dragging{background:var(--accent)}
+/* TC band resize — drag the grip at the bottom edge */
+.tc-resize{position:absolute;left:0;right:0;bottom:-4px;height:9px;cursor:row-resize;z-index:2;display:flex;justify-content:center;align-items:center;touch-action:none}
+.tc-resize::after{content:'';width:46px;height:4px;border-radius:2px;background:var(--border);transition:background .12s}
+.tc-resize:hover::after,.tc-resize.dragging::after{background:var(--accent)}
+.tc-resize:hover,.tc-resize.dragging{background:rgba(88,166,255,.12)}
+body.resizing-tc{cursor:row-resize;user-select:none}
 body.resizing-markers{cursor:col-resize;user-select:none}
 .marker-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;
   border-bottom:1px solid var(--border);font-family:var(--font);font-size:.85rem;font-weight:700;color:var(--flag);letter-spacing:.05em}
@@ -107,6 +113,16 @@ body.markers-open .btn-marker-list{display:none}
 .btn-sm.active{color:var(--amber);border-color:var(--amber)}
 .btn-import{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:6px;padding:7px 14px;font-size:.88rem;cursor:pointer;font-family:var(--sans);font-weight:600}
 .btn-import:hover{opacity:.85}
+.header .clock-block{margin-left:auto}
+.settings{position:relative;align-self:center}
+.btn-settings{background:var(--surface2);color:var(--dim);border:1px solid var(--border);border-radius:8px;width:38px;height:38px;font-size:1.25rem;line-height:1;cursor:pointer}
+.btn-settings:hover,.settings.open .btn-settings{color:var(--accent);border-color:var(--accent)}
+.settings-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:190px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45);z-index:300}
+.settings.open .settings-menu{display:block}
+.settings-menu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text,#e6edf3);font:inherit;font-size:.9rem;padding:8px 10px;border-radius:5px;cursor:pointer}
+.settings-menu button:hover{background:var(--surface2)}
+.settings-menu button.danger{color:var(--red,#f85149)}
+.settings-sep{height:1px;background:var(--border);margin:4px 2px}
 
 .drop-overlay{display:none;position:fixed;inset:0;z-index:999;background:rgba(13,17,23,.92);align-items:center;justify-content:center;flex-direction:column;gap:12px}
 .drop-overlay.active{display:flex}
@@ -181,8 +197,8 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
 .import-info span{color:var(--green)}
 .modified-flag{color:var(--amber)!important;font-weight:700}
 
-@media(max-width:768px){body.markers-open{padding-right:0}.marker-resize{display:none}.marker-panel{width:100%;max-width:320px;box-shadow:-8px 0 24px rgba(0,0,0,.5)}.header{padding:8px 12px}.showtc{font-size:2.4rem}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
-@media print{.top-bar{position:static}.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.btn-marker-list,.marker-panel,.import-info,.drag-handle,.chase-bar{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
+@media(max-width:768px){body.markers-open{padding-right:0}.marker-resize{display:none}.marker-panel{width:100%;max-width:320px;box-shadow:-8px 0 24px rgba(0,0,0,.5)}.header{padding:8px 12px}.showtc{font-size:calc(2.4rem * var(--tc-scale,1))}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
+@media print{.top-bar{position:static}.settings,.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.btn-marker-list,.marker-panel,.import-info,.drag-handle,.chase-bar,.tc-resize{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
 </style>
 </head>
 <body>
@@ -207,6 +223,16 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
       <div class="clock-label">Local Time</div>
       <div class="clock" id="clock">--:--:--</div>
     </div>
+    <div class="settings" id="settings">
+      <button class="btn-settings" id="settingsBtn" onclick="toggleSettings()" title="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
+      <div class="settings-menu" id="settingsMenu" role="menu">
+        <button role="menuitem" onclick="closeSettings();document.getElementById('fileIn').click()">⬆ Import XLSX</button>
+        <button role="menuitem" onclick="closeSettings();exportXLSX()">⬇ Export XLSX</button>
+        <div class="settings-sep"></div>
+        <button role="menuitem" class="danger" onclick="closeSettings();clearSaved()" title="Clear saved state &amp; reload defaults">🗑 Clear saved</button>
+      </div>
+      <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none">
+    </div>
   </div>
   <div class="tc-band">
     <div class="next-side now" id="nowInfo"></div>
@@ -221,6 +247,7 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
     <div class="next-side next" id="nextSide">
       <div id="nextInfo"></div>
     </div>
+    <div class="tc-resize" id="tcResize" title="Drag to resize the timecode · double-click to reset"></div>
   </div>
   <div class="meta-bar" id="metaBar">
     <span><b>Show:</b> <span contenteditable="true" id="mShow">—</span></span>
@@ -264,24 +291,14 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
     </span>
   </div>
   <div class="filters">
-    <button class="btn-import" onclick="document.getElementById('fileIn').click()">⬆ Import XLSX</button>
-    <button class="btn-import" style="background:var(--green);border-color:var(--green);color:#000" onclick="exportXLSX()">⬇ Export XLSX</button>
-    <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none">
     <button class="btn-sm" id="editToggle" onclick="toggleEditMode()" title="Edit OFF: click a cue to locate TC to its start · Edit ON: edit cue fields &amp; times">✎ Edit: OFF</button>
     <button class="btn-sm" style="color:var(--green);border-color:var(--green)" onclick="addCueGlobal()" title="Add a new cue at the end of the current act">＋ Add Cue</button>
     <button class="btn-sm" id="reorderToggle" onclick="toggleReorder()">↕ Reorder: ON</button>
     <button class="btn-sm" onclick="undoOrder()" title="Undo last move">⎌ Undo</button>
-    <button class="btn-sm" onclick="clearSaved()" title="Clear saved state & reload defaults">🗑 Clear saved</button>
     <span id="saveStamp" style="font-family:var(--font);font-size:.72rem;color:var(--green)"></span>
     <span style="color:var(--muted)">|</span>
     <label>Act</label>
     <select id="fAct"><option value="">All</option><option value="1">Act 1</option><option value="2">Act 2</option></select>
-    <label>Dept</label>
-    <select id="fDept"><option value="">All</option><option>Sound</option><option>LX</option><option>Video</option><option>Band</option></select>
-    <label>Status</label>
-    <select id="fStatus"><option value="">All</option><option>Standby</option><option>Ready</option><option>Running</option><option>Done</option><option>Hold</option><option>Cut</option></select>
-    <label>Scene</label>
-    <select id="fScene"><option value="">All</option></select>
     <label>Search</label>
     <input type="text" id="fSearch" placeholder="filter…" size="10">
     <button class="btn-sm" onclick="resetFilters()">Reset</button>
@@ -422,7 +439,6 @@ function applyRemoteSync(data){
   recalcTC();
   if(data.meta)Object.entries(data.meta).forEach(([id,val])=>{const e=document.getElementById(id);if(e&&val!=null)e.textContent=val});
   if(data.tcColor)setTcColor(data.tcColor);
-  rebuildSceneDropdown();rebuildDeptDropdown();
   render();renderMarkers();
   saveState(true);
 }
@@ -454,7 +470,7 @@ function clearSaved(){
   try{localStorage.removeItem(LS_KEY)}catch(e){}
   loadDefaults();resetTcColor();
   ['mShow','mVenue','mProg'].forEach(id=>document.getElementById(id).textContent='—');
-  rebuildSceneDropdown();render();renderMarkers();
+  render();renderMarkers();
   const el=document.getElementById('saveStamp');if(el)el.textContent='cleared — defaults loaded';
   toast('Saved state cleared');
 }
@@ -505,10 +521,8 @@ function setEditMode(on){
 function toggleEditMode(){setEditMode(!editMode);toast(editMode?'Edit ON — click fields to edit cue times':'Edit OFF — click a cue to locate TC')}
 
 function render(){
-  const fa=document.getElementById('fAct').value,fd=document.getElementById('fDept').value.toLowerCase(),
-    fs=document.getElementById('fStatus').value.toLowerCase(),fsc=document.getElementById('fScene').value,
-    q=document.getElementById('fSearch').value.toLowerCase();
-  const filtering=fa||fd||fs||fsc||q;
+  const fa=document.getElementById('fAct').value,q=document.getElementById('fSearch').value.toLowerCase();
+  const filtering=fa||q;
   let html='',shown=0,total=0;
   cues.forEach((c,idx)=>{
     if(c.kind==='banner'){
@@ -517,9 +531,6 @@ function render(){
       html+=`<tr class="${bcls}" data-idx="${idx}"><td colspan="14">${esc(c.label)}</td></tr>`;return}
     total++;
     if(fa&&String(c.act)!==fa)return;
-    if(fd&&(c.dept||'').toLowerCase()!==fd)return;
-    if(fs&&(c.status||'').toLowerCase()!==fs)return;
-    if(fsc&&c.label!==fsc)return;
     if(q){if(!Object.values(c).join(' ').toLowerCase().includes(q))return}
     shown++;
     const cls=c.kind==='trans'?'transition':c.kind==='main'?'main':'';
@@ -533,7 +544,8 @@ function render(){
     html+=`<tr class="${cls}" data-idx="${idx}"${loc}>
       <td class="ctr">${grab}${rowActions}</td>
       <td class="ctr cue-cell">${c.kind==='trans'?'↳ ':''}${ed('cue','#')}</td>
-      <td class="tc">${c.tcIn}</td><td class="tc">${c.tcOut}</td>
+      <td class="tc"><span${ce} data-idx="${idx}" data-field="tcIn" data-ph="--:--:--:--">${c.tcIn}</span></td>
+      <td class="tc"><span${ce} data-idx="${idx}" data-field="tcOut" data-ph="--:--:--:--">${c.tcOut}</span></td>
       <td class="tc dur"><span${ce} data-idx="${idx}" data-field="durSec" data-ph="--:--:--:--">${c.dur}</span></td>
       <td class="tc music">${ed('music','mm:ss')}</td>
       <td class="label-cell">${ed('label','Label / Scene')}<div class="cue-progress" style="width:0"></div></td>
@@ -551,24 +563,9 @@ function render(){
   bindDrag();
   bindEdits();
 }
-function resetFilters(){['fAct','fDept','fStatus','fScene'].forEach(id=>document.getElementById(id).value='');document.getElementById('fSearch').value='';render()}
+function resetFilters(){['fAct'].forEach(id=>document.getElementById(id).value='');document.getElementById('fSearch').value='';render()}
 document.querySelectorAll('.filters select, .filters input[type="text"]').forEach(el=>el.addEventListener(el.tagName==='INPUT'?'input':'change',render));
 
-function rebuildSceneDropdown(){
-  const sel=document.getElementById('fScene'),val=sel.value;
-  sel.innerHTML='<option value="">All</option>';
-  [...new Set(cues.filter(c=>c.kind!=='banner').map(c=>c.label))].forEach(s=>{
-    const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o)});
-  sel.value=val;
-}
-function rebuildDeptDropdown(){
-  const sel=document.getElementById('fDept'),val=sel.value;
-  const depts=[...new Set(cues.filter(c=>c.kind!=='banner'&&c.dept).map(c=>c.dept))];
-  const all=[...new Set(['Sound','LX','Video','Band',...depts])];
-  sel.innerHTML='<option value="">All</option>';
-  all.forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;sel.appendChild(o)});
-  sel.value=val;
-}
 
 /* =========================================================
    TC CHASE ENGINE
@@ -673,6 +670,13 @@ tbody.addEventListener('click',e=>{
   if(tr)locateToCue(+tr.dataset.idx);
 });
 
+/* ---- ⚙ settings menu (Import / Export / Clear saved) ---- */
+function toggleSettings(){const w=document.getElementById('settings'),o=!w.classList.contains('open');
+  w.classList.toggle('open',o);document.getElementById('settingsBtn').setAttribute('aria-expanded',o)}
+function closeSettings(){document.getElementById('settings').classList.remove('open');document.getElementById('settingsBtn').setAttribute('aria-expanded','false')}
+document.addEventListener('click',e=>{if(!e.target.closest('#settings'))closeSettings()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings()});
+
 function toggleFollow(){chase.follow=!chase.follow;document.getElementById('followBtn').classList.toggle('active',chase.follow)}
 
 /* =========================================================
@@ -736,6 +740,35 @@ function setMarkerWidth(w,save){
   h.addEventListener('dblclick',()=>setMarkerWidth(MARKER_W_DEFAULT,true));
   let w=MARKER_W_DEFAULT;try{w=+localStorage.getItem(MARKER_WIDTH_KEY)||MARKER_W_DEFAULT}catch(e){}
   setMarkerWidth(w,false);
+})();
+// TC band size — drag the bottom grip; per-browser preference like the marker width
+const TC_SCALE_KEY='tc_cuesheet_tc_scale';
+function setTcScale(k,save){
+  k=Math.round(Math.max(0.5,Math.min(k,3))*100)/100;
+  document.body.style.setProperty('--tc-scale',k);
+  document.body.style.setProperty('--tc-side-scale',Math.max(0.8,Math.min(1+(k-1)*0.5,2)));  // NOW/NEXT grow at half rate
+  if(save){try{localStorage.setItem(TC_SCALE_KEY,String(k))}catch(e){}}
+  return k;
+}
+(function(){
+  const h=document.getElementById('tcResize'),tc=document.getElementById('showTC');
+  let y0=0,k0=1,h0=1,k=1;
+  h.addEventListener('pointerdown',e=>{
+    e.preventDefault();h.setPointerCapture(e.pointerId);
+    y0=e.clientY;k0=k;h0=tc.getBoundingClientRect().height||1;
+    h.classList.add('dragging');document.body.classList.add('resizing-tc')});
+  h.addEventListener('pointermove',e=>{
+    if(!h.hasPointerCapture(e.pointerId))return;
+    k=setTcScale(k0*(h0+(e.clientY-y0))/h0,false)});
+  const end=e=>{
+    if(!h.hasPointerCapture(e.pointerId))return;
+    h.releasePointerCapture(e.pointerId);
+    h.classList.remove('dragging');document.body.classList.remove('resizing-tc');
+    setTcScale(k,true)};
+  h.addEventListener('pointerup',end);h.addEventListener('pointercancel',end);
+  h.addEventListener('dblclick',()=>{k=setTcScale(1,true)});
+  try{k=+localStorage.getItem(TC_SCALE_KEY)||1}catch(e){}
+  k=setTcScale(k,false);
 })();
 function renderMarkers(){
   const el=document.getElementById('markerList');
@@ -957,7 +990,7 @@ let dragIdx=null;
 function toggleReorder(){reorderOn=!reorderOn;document.getElementById('reorderToggle').textContent='↕ Reorder: '+(reorderOn?'ON':'OFF');render()}
 function undoOrder(){
   if(!undoStack.length){toast('Nothing to undo',true);return}
-  cues=undoStack.pop();recalcTC();rebuildSceneDropdown();render();toast('Order restored');saveState()}
+  cues=undoStack.pop();recalcTC();render();toast('Order restored');saveState()}
 function bindDrag(){
   tbody.querySelectorAll('.drag-handle').forEach(h=>{
     h.addEventListener('dragstart',e=>{
@@ -1007,9 +1040,32 @@ function editCue(idx,field,raw){
     if(s==null){toast('Bad duration — use HH:MM:SS:FF',true);render();return}
     pushUndo();c.durSec=s;recalcTC();render();saveState();toast('Duration updated — TC rippled');return;
   }
+  if(field==='tcOut'||field==='tcIn'){
+    if(val===c[field])return;
+    const s=tcToSec(val);
+    if(s==null){toast('Bad timecode — use HH:MM:SS:FF',true);render();return}
+    if(field==='tcOut'){
+      // TC Out → this cue's duration (TC In stays put), later cues ripple
+      if(c.tcInSec==null||s<=c.tcInSec){toast('TC Out must be after TC In ('+(c.tcIn||'none')+')',true);render();return}
+      pushUndo();c.durSec=s-c.tcInSec;recalcTC();render();saveState();toast('TC Out updated — TC rippled');return;
+    }
+    // TC In → previous cue absorbs the change (this cue keeps its own length).
+    // First cue of an act → move the act's start (banner anchor) instead.
+    let j=idx-1;
+    while(j>=0&&!(cues[j].kind==='banner'&&cues[j].sub!=='intermission')&&
+          !(cues[j].kind!=='banner'&&cues[j].durSec!=null))j--;
+    const prev=cues[j];
+    if(!prev){toast('No act banner above this cue — can\'t move its TC In',true);render();return}
+    if(prev.kind==='banner'){
+      pushUndo();prev.anchor=s;recalcTC();render();saveState();
+      toast(`Act ${prev.act} start moved to ${tc2(s)} — TC rippled`);return;
+    }
+    if(s<=prev.tcInSec){toast(`TC In must be after the previous cue's TC In (${prev.tcIn})`,true);render();return}
+    pushUndo();prev.durSec=s-prev.tcInSec;recalcTC();render();saveState();
+    toast(`TC In updated — previous cue "${prev.cue||prev.label||'?'}" now ${tc2(prev.durSec)}`);return;
+  }
   if(c[field]===val)return; // unchanged on blur — skip, don't spam the undo stack
   pushUndo();c[field]=val;
-  if(field==='label')rebuildSceneDropdown();
   saveState();
 }
 function bindEdits(){
@@ -1033,7 +1089,7 @@ function addCueAfter(idx){
   pushUndo();
   const act=cues[idx]?.act||1;
   cues.splice(idx+1,0,blankCue(act));
-  recalcTC();rebuildSceneDropdown();render();saveState();
+  recalcTC();render();saveState();
   toast('Cue added — click the label to name it');
   setTimeout(()=>{
     const el=tbody.querySelector(`tr[data-idx="${idx+1}"] [data-field="label"]`);
@@ -1053,7 +1109,7 @@ function deleteCue(idx){
   if(!confirm(`Delete cue "${c.cue||'?'} — ${c.label||'(no label)'}"?`))return;
   pushUndo();
   cues.splice(idx,1);
-  recalcTC();rebuildSceneDropdown();render();saveState();
+  recalcTC();render();saveState();
   toast('Cue deleted — Undo to restore');
 }
 
@@ -1132,7 +1188,7 @@ function importXLSX(file){
           if(newCues[j].durSec!=null&&s!=null){bn.anchor=s;break}}});
       cues=newCues;orderModified=false;undoStack=[];
       sanitizeStatuses();
-      recalcTC();rebuildSceneDropdown();rebuildDeptDropdown();resetFilters();render();
+      recalcTC();resetFilters();render();
       const info=document.getElementById('importInfo');info.style.display='block';
       document.getElementById('importFile').textContent=file.name;
       document.getElementById('importTime').textContent=new Date().toLocaleTimeString();
@@ -1210,7 +1266,6 @@ loadDefaults();
 loadState();                 /* override with persisted state if present */
 ['mShow','mVenue','mProg','mMaster','mTC','mFPS'].forEach(id=>
   document.getElementById(id).addEventListener('blur',saveState));
-rebuildSceneDropdown();
 setEditMode(editMode);       /* syncs button + body class, then renders */
 renderMarkers();
 {let open=true;try{open=localStorage.getItem(MARKER_PANEL_KEY)!=='0'}catch(e){}setMarkerPanel(open)}
