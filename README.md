@@ -87,6 +87,28 @@ That's it — you're ready for the show. 🎬✨
 
 ---
 
+## 🎛️ Alternate Show Day — Cue sheet drives the MTC-30 (Art-Net OUT)
+
+Use this instead of steps 3–7 when the **cue sheet is the master clock** and the **DOREMiDi MTC-30** (at `10.10.11.226`) chases it. No Horae needed.
+
+1. Make sure the Docker test relay is **not** running — it holds port 8765 and the real relay can't start while it's up:
+   ```bash
+   docker stop tc-relay
+   ```
+2. Start the relay natively on the Mac (Docker can't send Art-Net from macOS):
+   ```bash
+   cd ~/Documents/Git/Show_Timecode
+   uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226
+   ```
+   You should see `[artnet-out] sending to 10.10.11.226:6454 …`. Leave the window open.
+3. On the **MTC-30**, set the timecode source to **Art-Net** (reader mode).
+4. Open `http://localhost:8085` → **Source → Manual** → click **⇢ Art-Net OUT** (dot turns 🔵 blue).
+5. Type a start TC, hit **▶ START** — the MTC-30 follows. **■ STOP** holds, **±1s** nudges.
+
+> 💡 The Mac must be on the show subnet (`10.10.11.x`). Quick check: `ping 10.10.11.226`.
+
+---
+
 ## 🆘 Something's not working?
 
 | What you see | What it means | What to do |
@@ -187,7 +209,7 @@ The cue sheet's **Manual** transport (▶ START / ■ STOP / ±1s / typed start 
 
 ```bash
 python3 tc_relay.py --artnet-out 10.10.11.255              # broadcast to the show subnet
-python3 tc_relay.py --artnet-out 10.10.11.214              # or unicast to the MTC-30 only
+python3 tc_relay.py --artnet-out 10.10.11.226              # or unicast to the MTC-30 only
 python3 tc_relay.py --artnet --artnet-out 10.10.11.255     # combine with Art-Net IN
 ```
 
@@ -202,6 +224,7 @@ In the cue sheet:
 - On the MTC-30, set its timecode source to **Art-Net** (reader mode).
 - If the relay was started without `--artnet-out`, the page shows *"relay not started with --artnet-out"*.
 - With `--artnet` also on, the relay hears its own output, so other screens on **Source → WebSocket** follow the Manual playback too.
+- **On macOS, run this natively, not in Docker** — and stop the Docker `tc-relay` container first (`docker stop tc-relay`), otherwise the native relay fails with `address already in use` on 8765.
 
 ---
 
@@ -258,12 +281,17 @@ In `timecode_cue_sheet.html`:
 
 ## Editing the cue sheet
 
-Everything's editable directly in the table — no re-import needed:
+The toolbar **✎ Edit** button switches the table between two modes (remembered per browser, **OFF** by default so a stray click during the show can't change anything):
+
+- **Edit: OFF — click to locate.** Clicking a cue row jumps the TC to that cue's **TC In** (and selects its Act in the Chase bar). If Manual is running, the playhead jumps there and keeps rolling. If it's stopped, the cue is parked: the TC box is filled in, Art-Net OUT holds on that frame, and **▶ START** plays from it. With a WebSocket/MTC source the external clock is in charge, so the page only fills in the TC box and shows a warning.
+- **Edit: ON** — everything below is editable directly in the table, no re-import needed (**＋ Add Cue** turns Edit on by itself):
 
 - **Add a cue** — toolbar **＋ Add Cue** (appends to the current/default act), or hover any row and click its **＋** to insert right after it.
 - **Delete a cue** — hover a row, click **✕** (confirms first).
 - **Rename / edit fields** — click into Cue#, Label/Scene, Trigger, Dept, Device, Action, Fade, or Notes and type. Commits on blur or Enter.
 - **Edit Duration** — click the Dur cell, type `HH:MM:SS:FF`. TC In/Out for every following cue ripples forward automatically — same mechanism as drag-reordering.
+- **Edit TC Out** — sets that cue's duration (its TC In stays put); following cues ripple.
+- **Edit TC In** — the *previous* cue's duration stretches/shrinks so this cue starts there and keeps its own length; following cues ripple. On the **first cue of an act** it moves the whole act's start time instead.
 - All of the above feed the existing **⎌ Undo** button and autosave (localStorage), so none of this is riskier than a drag-reorder.
 
 **Live sync across hosts** — any edit (rename, add/delete/reorder, status, notes, meta fields, TC color) is pushed to every other browser connected via **Source: WebSocket** to the same relay, over that same connection — no separate setup. A browser that joins later gets the current cue sheet immediately (the relay caches the latest snapshot for new connections). The one thing that's deliberately *not* synced is the transient "Running" highlight — each host computes that itself from the shared TC feed, so it stays consistent without fighting over the wire. Hosts using **MTC (Web MIDI)** as their TC source instead of WebSocket aren't on this channel and won't send or receive edits.
@@ -369,14 +397,19 @@ Change `--mtc "MOTU"` to `--mtc "TimeCore"` (or whatever the RTP-MIDI session/po
 | MTC over RTP-MIDI (Horae/TimeCore) | `python3 tc_relay.py --mtc "TimeCore"` |
 | MTC, custom WS port | `python3 tc_relay.py --mtc "USB MIDI" --ws-port 9000` |
 | Art-Net Timecode (MTC-30, etc.) | `python3 tc_relay.py --artnet` |
-| Art-Net, one sender only | `python3 tc_relay.py --artnet --artnet-src 10.10.11.214` |
+| Art-Net, one sender only | `python3 tc_relay.py --artnet --artnet-src 10.10.11.226` |
 | Art-Net OUT from Manual transport | `python3 tc_relay.py --artnet-out 10.10.11.255` |
+| Art-Net OUT, unicast to MTC-30 | `python3 tc_relay.py --artnet-out 10.10.11.226` |
 | Free-run from 1h | `python3 tc_relay.py --fake 01:00:00:00` |
 | Free-run, 25fps | `python3 tc_relay.py --fake 00:59:50:00 --fps 25` |
 
 ---
 
 ## Troubleshooting
+
+**`OSError: [Errno 48] … address already in use` on 8765**
+- Something else owns the WS port — usually the Docker `tc-relay` container (fake mode)
+- `lsof -nP -iTCP:8765 -sTCP:LISTEN` to see who; `docker stop tc-relay` to free it, or start the relay with `--ws-port 8766` and connect the cue sheet to that port instead
 
 **`No module named rtmidi`**
 ```bash
