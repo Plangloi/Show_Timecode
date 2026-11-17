@@ -3,123 +3,214 @@ Show time code tracking
 
 ---
 
-# 🎬 Quick Start — Running the Show (Zero Tech Experience Needed)
+# 🎬 Quick Start — Running the Show (no tech experience needed)
 
-This section is for anyone running the cue sheet who's never touched Docker, Terminal, or MIDI before. Just follow the steps in order, top to bottom. 🙂
+Follow the steps **in order, top to bottom**. Every command is something you copy, paste into **Terminal**, and press **Enter**. 🙂
 
-> 💡 This walkthrough assumes the show computer is already set up the way iPat configured it (Horae routed to IAC, the auto-start relay service installed). You're just turning things on, not building them.
+> 🖥️ **What's Terminal?** An app on every Mac. Press **⌘ + Space**, type `Terminal`, press **Enter**. A window with text opens — that's where you paste commands.
 
-## ✅ Before the show — one-time checklist
+## 🧠 What is all this? (30-second version)
 
-- [ ] 🐳 **Docker Desktop** is installed on this Mac
-- [ ] 🎼 **Horae** is installed
-- [ ] ⚙️ The **auto-start relay service** has been set up once by iPat (you won't need to touch Terminal for this — it starts itself)
+```
+                 ┌──────────────────────────────┐
+  You press ▶    │  Cue sheet  (web page)       │   http://localhost:8085
+  in the browser │  the show's master clock     │
+                 └──────────────┬───────────────┘
+                                │
+                 ┌──────────────▼───────────────┐
+                 │  Relay  (tc_relay.py)        │   runs in a Terminal window
+                 └──┬─────────────┬──────────┬──┘
+                    │             │          │
+        Art-Net timecode    OSC "start cue"   OSC remote control (in)
+                    ▼             ▼          ▲
+           ┌──────────────┐ ┌──────────┐ ┌────────────────────────┐
+           │    MTC-30    │ │   QLab   │ │ QLab / Companion / etc │
+           │ 10.10.11.226 │ │ this Mac │ │ → /play /stop /next    │
+           └──────────────┘ └──────────┘ └────────────────────────┘
+```
 
-If all three are already true, skip straight to "Show day" below. 👇
+- **Cue sheet** — the web page with the big clock and the list of cues.
+- **Relay** — a small program that takes the clock from the cue sheet and sends it out to the gear.
+- **MTC-30** — the DOREMiDi timecode box at `10.10.11.226`. It follows the cue sheet's clock (Art-Net timecode).
+- **QLab** — when the clock reaches a cue, QLab gets told to **start the cue with the same number**.
+
+---
+
+## ✅ One-time setup (only the very first time on a new Mac)
+
+Skip this whole section if the show Mac is already set up.
+
+1. **Install Docker Desktop** 🐳 — download from <https://www.docker.com/products/docker-desktop/>, open it once, accept the defaults.
+2. **Install uv** (runs the relay — no Python setup needed). In Terminal:
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+   Then **close Terminal and open it again**.
+3. **Get the project** (skip if `~/Documents/Git/Show_Timecode` already exists):
+   ```bash
+   mkdir -p ~/Documents/Git && cd ~/Documents/Git && git clone https://github.com/Plangloi/Show_Timecode.git
+   ```
+   If the Mac asks to install "command line developer tools", click **Install**, wait, then run the line again.
+4. **QLab** 🎼 — installed, and in your workspace: **Workspace Settings → Network → OSC access ON**. Number your QLab cues the **same as the Cue# column** in the cue sheet (e.g. `12`).
+5. **Network** 🌐 — the Mac must be plugged into the show network (`10.10.11.x`). Check it can see the MTC-30:
+   ```bash
+   ping -c 3 10.10.11.226
+   ```
+   ✅ Lines with `time=… ms` = good. ❌ `Request timeout` = wrong network / cable.
 
 ---
 
 ## 🎭 Show Day — Step by Step
 
-### 1️⃣ Start Docker Desktop
+### 1️⃣ Start Docker Desktop 🐳
 
-Click the Docker whale icon 🐳 in your Applications folder (or menu bar if it's already running). Wait until the icon in the top menu bar stops animating — that means it's ready.
+Open **Docker** from Applications. Wait until the whale icon in the top menu bar **stops moving**.
 
-### 2️⃣ Start the cue sheet website
+### 2️⃣ Start the cue sheet page
 
-Open **Terminal**, paste this one line, press Enter:
-
-```bash
-cd ~/Documents/Git/Show_Timecode && docker compose up -d cuesheet
-```
-
-> ⚠️ Only start `cuesheet` here — **not** `relay`. The timecode relay for this show runs a different way (see step 3), and starting both at once will fight over the same connection.
-
-### 3️⃣ Open Horae and get it talking
-
-1. Open **Horae** 🎼
-2. Make sure **`IAC Driver Bus 1`** has a ✅ checkmark in the MTC Destination list on the right
-3. Press ▶️ **Play** on the timecode generator
-
-### 4️⃣ Check the relay is running
-
-It should already be running quietly in the background (it auto-starts when you log in). To double check:
+In Terminal, paste:
 
 ```bash
-launchctl list | grep tc-relay
+cd ~/Documents/Git/Show_Timecode && docker compose up -d cuesheet && docker stop tc-relay 2>/dev/null; echo READY
 ```
 
-If you see a line printed back, ✅ you're good — skip to step 5.
+✅ You should see `READY` at the end.
 
-If you see **nothing printed**, start it manually:
+> ⚠️ This starts **only the cue sheet page** and makes sure Docker's *test* clock is off — it would block the real relay in the next step.
+
+### 3️⃣ Start the relay (leave this window open!)
+
+In the **same** Terminal, paste:
 
 ```bash
-cd ~/Documents/Git/Show_Timecode
-uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "IAC"
+uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 127.0.0.1 --osc-in 9000
 ```
 
-Leave that Terminal window open in the background while the show runs.
+✅ You should see something like:
+
+```
+[qlab] /cue/<cue#>/start → 127.0.0.1:53000
+[ws] broadcasting on ws://0.0.0.0:8765
+[tc-out] Art-Net 10.10.11.226 · OSC QLab 127.0.0.1:53000 — driven by the cue sheet's Manual transport
+[osc-in] listening on udp/9000: ...
+```
+
+- 🔒 If the Mac pops up *"Do you want python to accept incoming connections?"* → click **Allow**.
+- 🚫 **Do not close this window** during the show — closing it stops the timecode. Minimize it instead.
+
+### 4️⃣ Set the MTC-30 and QLab
+
+- **MTC-30:** set its timecode source to **Art-Net** (reader mode).
+- **QLab:** open your show workspace.
 
 ### 5️⃣ Open the cue sheet
 
-In your web browser, go to:
+In Chrome or Safari go to: **<http://localhost:8085>**
 
-```
-http://localhost:8085
-```
+### 6️⃣ Connect the cue sheet to the relay
 
-*(Someone viewing from a different laptop/tablet on the same WiFi? Use the show computer's network address instead of `localhost` — ask iPat for that number if you don't have it.)*
+In the **Chase** bar (just under the big clock):
 
-### 6️⃣ Connect it to the timecode
+1. **Source** dropdown → choose **Manual**
+2. Next to it, the box should already say `ws://localhost:8765` — click **⇢ TC OUT**
+3. ✅ The dot turns **🔵 blue** and a message says `TC OUT → Art-Net 10.10.11.226 · OSC QLab …`
 
-At the top of the cue sheet, in the **Chase** bar:
+### 7️⃣ Run the show 🎉
 
-1. Find the **Source** dropdown → choose **WebSocket**
-2. In the box that appears, type: `ws://localhost:8765`
-3. Click **Connect**
+| To… | Do this |
+|---|---|
+| Choose the act | **Act** dropdown in the Chase bar |
+| Start the clock | Type a start time (e.g. `00:56:00:00`) or leave empty for the act's start → **▶ START** |
+| Stop / hold | **■ STOP** (the MTC-30 holds that frame) |
+| Small jump | **−1s / +1s** |
+| Jump to a cue | Click the cue's row (with **✎ Edit: OFF**) — the clock jumps to that cue's start |
+| Mark a moment | **⚑ MARK** (or **Space**) — saves the time in the marker list |
+| Bigger / smaller clock | Drag the little bar under the big clock · double-click it to reset |
 
-### 7️⃣ You're live! 🎉
+While it runs:
+- The big clock counts **🟠 orange**, the **MTC-30** shows the same time.
+- The current cue turns **🟢 green "Running"**, and **QLab starts the cue with the same number**.
+- **NOW** (left) and **NEXT in …** (right) show what's playing and what's coming.
 
-- The big clock at the top should turn **🔵 blue** and start counting, matching Horae's numbers
-- As each cue's moment arrives, its **Status** turns **🟢 green "Running"** automatically, then back to **🟡 Standby** when it's done
+### 8️⃣ After the show
 
-That's it — you're ready for the show. 🎬✨
+- Click **■ STOP**.
+- In the relay's Terminal window press **Ctrl + C** to stop it (or just close the window).
+- The cue sheet page can stay running — it costs nothing.
 
 ---
 
-## 🎛️ Alternate Show Day — Cue sheet drives the MTC-30 (Art-Net OUT)
+## ✏️ Changing the cue sheet
 
-Use this instead of steps 3–7 when the **cue sheet is the master clock** and the **DOREMiDi MTC-30** (at `10.10.11.226`) chases it. No Horae needed.
+- **✎ Edit** (toolbar) switches between:
+  - **OFF** — safe for the show: nothing can be changed by accident, clicking a cue jumps the clock there.
+  - **ON** — click any cell to type: Cue#, label, **TC In**, **TC Out**, **Dur**, notes… Press **Enter** to confirm. Times use `HH:MM:SS:FF` (hours:minutes:seconds:frames). Changing a time shifts all the cues after it.
+- **⎌ Undo** — undoes the last change.
+- **⚙** (top right) — **Import XLSX** / **Export XLSX** (save a copy to Excel) / **Clear saved** (⚠️ resets everything to the default sheet).
+- Changes save automatically in the browser. Use **Export XLSX** to keep a real backup file.
+- **QLab tip:** put an OSC command in a cue's **Action** column (e.g. `/cue/12/go`) to send that instead of "start".
 
-1. Make sure the Docker test relay is **not** running — it holds port 8765 and the real relay can't start while it's up:
+---
+
+## 📱 Other screens (iPad / another laptop)
+
+1. On the show Mac, find its address:
    ```bash
-   docker stop tc-relay
+   ipconfig getifaddr en0
    ```
-2. Start the relay natively on the Mac (Docker can't send Art-Net from macOS):
-   ```bash
-   cd ~/Documents/Git/Show_Timecode
-   uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226
-   ```
-   You should see `[artnet-out] sending to 10.10.11.226:6454 …`. Leave the window open.
-3. On the **MTC-30**, set the timecode source to **Art-Net** (reader mode).
-4. Open `http://localhost:8085` → **Source → Manual** → click **⇢ TC OUT** (dot turns 🔵 blue).
-5. Type a start TC, hit **▶ START** — the MTC-30 follows. **■ STOP** holds, **±1s** nudges.
+   (e.g. `10.10.11.209`)
+2. On the other device, open `http://<that address>:8085`
+3. **Source → WebSocket**, type `ws://<that address>:8765`, **Connect** → it follows the show clock and shows the same cue sheet edits.
 
-> 💡 The Mac must be on the show subnet (`10.10.11.x`). Quick check: `ping 10.10.11.226`.
+---
+
+## 🕹️ Remote control from QLab / Companion / Stream Deck (optional)
+
+Send OSC to the show Mac on port **9000** (the relay forwards it to the cue sheet — keep the cue sheet open on **Manual** with **⇢ TC OUT** connected):
+
+| Send | Does |
+|---|---|
+| `/play` · `/stop` · `/toggle` | Start / stop the clock |
+| `/next` · `/prev` | Jump to next / previous cue |
+| `/cue 12` | Jump to cue 12 |
+| `/locate "01:00:00:00"` | Jump to a time |
+
+In QLab: add a **Network** cue → destination = this Mac, port `9000` → message e.g. `/next`.
+
+---
+
+## 🎼 Other option — Horae is the master clock (instead of the cue sheet)
+
+Use this only if **Horae** generates the timecode and the cue sheet just follows it.
+
+1. Do steps 1️⃣ and 2️⃣ above.
+2. In **Horae**: tick **`IAC Driver Bus 1`** in the MTC Destination list, press ▶️ **Play**.
+3. Start the relay in MTC mode (instead of step 3️⃣):
+   ```bash
+   uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "IAC" --qlab 127.0.0.1
+   ```
+4. Cue sheet: **Source → WebSocket**, type `ws://localhost:8765`, **Connect**. The clock turns **🔵 blue** and follows Horae.
 
 ---
 
 ## 🆘 Something's not working?
 
-| What you see | What it means | What to do |
+| What you see | Why | Fix |
 |---|---|---|
-| Cue sheet page won't load at all | Docker isn't running | Go back to Step 1 🐳 |
-| Clock stays gray, says `--:--:--:--` | Not connected yet | Redo Step 6 — check you typed `ws://localhost:8765` exactly |
-| Clock is blue but numbers aren't moving | Horae isn't sending timecode | In Horae: is ▶️ Play actually pressed? Is `IAC Driver Bus 1` checked? |
-| `launchctl list \| grep tc-relay` shows nothing, and manual start doesn't help either | Ask iPat — this needs the one-time setup checked | 📞 |
-| Cues never turn green even though the clock is moving | Wrong Act selected | Check the **Act** dropdown next to the ▶️ START button matches the act actually playing |
+| `localhost:8085` won't load | Docker isn't running | Step 1️⃣, then step 2️⃣ again |
+| Relay says `address already in use` | Docker's test clock is on, or a relay is already running in another window | `docker stop tc-relay`, close other relay windows, then step 3️⃣ again |
+| `command not found: uv` | uv not installed, or Terminal not reopened | One-time setup step 2, then **reopen Terminal** |
+| **⇢ TC OUT** says *relay unreachable* | Relay window closed / not started | Step 3️⃣ |
+| Clock stays `--:--:--:--` | Clock not started | Press **▶ START** (Source must be **Manual**) |
+| MTC-30 doesn't follow | Not on the network, or not in Art-Net mode | `ping -c 3 10.10.11.226` · set MTC-30 source to **Art-Net** · check the TC OUT dot is 🔵 |
+| QLab doesn't start cues | QLab closed, OSC off, or numbers don't match | QLab open · OSC access ON · QLab cue number = **Cue#** in the cue sheet |
+| QLab cue fires but it's the wrong one | Cue numbers differ | Make QLab's cue number exactly the cue sheet's **Cue#** |
+| Cues never turn green | Wrong Act selected | **Act** dropdown must match the act you're playing |
+| Can't type in the table | Edit is off | Click **✎ Edit: OFF** → it becomes **ON** |
+| Clicking a cue doesn't jump | Edit is on, or Source isn't Manual | Turn **✎ Edit** OFF · Source → **Manual** |
+| Page looks old after an update | Docker is serving the old file | `cd ~/Documents/Git/Show_Timecode && docker compose restart cuesheet`, then reload the page |
 
-When in doubt: close the browser tab, reopen `http://localhost:8085`, and redo Steps 5–6. That fixes almost everything. 🔄
+**When in doubt:** reload the page (**⌘ + R**), choose **Source → Manual**, click **⇢ TC OUT**. That fixes almost everything. 🔄
 
 ---
 
