@@ -284,10 +284,10 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
       <button class="btn-sm" id="mtcBtn" onclick="toggleMTC()">Listen</button>
       <span id="mtcRate" style="font-family:var(--font);font-size:.75rem;color:var(--dim)"></span>
     </span>
-    <span id="outFields" title="Send the Manual transport as Art-Net Timecode — the relay must run with --artnet-out">
+    <span id="outFields" title="Send the Manual transport as Art-Net / OSC timecode and take OSC remote control — the relay must run with --artnet-out, --osc-out or --osc-in">
       <span class="ws-dot" id="outDot"></span>
       <input type="text" id="outUrl" placeholder="ws://relay-host:8765" size="16">
-      <button class="btn-sm" id="outBtn" onclick="toggleArtnetOut()">⇢ Art-Net OUT</button>
+      <button class="btn-sm" id="outBtn" onclick="toggleArtnetOut()">⇢ TC OUT</button>
     </span>
   </div>
   <div class="filters">
@@ -638,30 +638,73 @@ function toggleArtnetOut(){
   ws.onopen=()=>{document.getElementById('outDot').classList.add('ok');btn.classList.add('active');sendTcOut()};
   ws.onmessage=ev=>{
     let j=null;try{j=JSON.parse(ev.data)}catch(e){return}
+    if(j&&j.type==='remote'){applyRemote(j.cmd,j.arg);return}   // OSC IN via the relay
     if(!j||j.type!=='tc_out_status')return;   // TC / cue-sheet sync from other hosts: not ours
-    if(!j.ok){toast('Art-Net OUT: '+j.msg,true);ws.close();return}
-    if(!announced){announced=true;toast('Art-Net OUT → '+j.dest)}
+    if(!j.ok){toast('TC OUT: '+j.msg,true);ws.close();return}
+    if(!announced){announced=true;toast('TC OUT → '+j.dest)}
   };
   ws.onclose=()=>{chase.outWs=null;document.getElementById('outDot').classList.remove('ok');btn.classList.remove('active')};
-  ws.onerror=()=>toast('Art-Net OUT: relay unreachable',true);
+  ws.onerror=()=>toast('TC OUT: relay unreachable',true);
   chase.outWs=ws;
 }
 document.getElementById('outUrl').value=`ws://${location.hostname||'localhost'}:8765`;
 /* ---- Click-to-locate (Edit OFF): jump the TC to a cue's TC In.
    Running → playhead jumps there and keeps rolling; stopped → cued up
    (TC input set, Art-Net OUT parks on that frame), START plays from it. ---- */
-function locateToCue(idx){
-  const c=cues[idx];if(!c||c.tcInSec==null)return;
-  const sec=c.tcInSec;
-  const actSel=document.getElementById('chaseAct');
-  if(c.act!=null&&[...actSel.options].some(o=>+o.value===c.act))actSel.value=String(c.act);
+function locateSec(sec){
   document.getElementById('tcInput').value=tc2(sec);
   if(chase.wsActive||chase.mtcActive){
-    toast('External TC source is driving — set Source → Manual to locate',true);return}
+    toast('External TC source is driving — set Source → Manual to locate',true);return false}
   if(chase.running){chase.baseSec=sec;chase.baseTime=performance.now()}
   else chase.outHold=sec;
-  sendTcOut();
-  toast(`Locate → ${c.tcIn}  ${c.cue?c.cue+' · ':''}${c.label||''}`);
+  sendTcOut();return true;
+}
+function locateToCue(idx){
+  const c=cues[idx];if(!c||c.tcInSec==null)return;
+  const actSel=document.getElementById('chaseAct');
+  if(c.act!=null&&[...actSel.options].some(o=>+o.value===c.act))actSel.value=String(c.act);
+  if(locateSec(c.tcInSec))toast(`Locate → ${c.tcIn}  ${c.cue?c.cue+' · ':''}${c.label||''}`);
+}
+/* ---- OSC IN remote (relay --osc-in → {"type":"remote"} on the TC OUT socket).
+   Only a page on Source → Manual acts on it; the result goes back out as TC OUT. ---- */
+function transportPos(){
+  return chaseNow()??chase.outHold??tcToSec(document.getElementById('tcInput').value)
+    ??ACT_ANCHOR[+document.getElementById('chaseAct').value];
+}
+function applyRemote(cmd,arg){
+  if(document.getElementById('tcProto').value!=='manual')return;
+  const label='OSC '+cmd+(arg!=null?' '+arg:'');
+  if(cmd==='play'||cmd==='stop'||cmd==='toggle'){
+    if(cmd==='play'&&chase.running||cmd==='stop'&&!chase.running)return;
+    if(!chase.running&&chase.outHold!=null)document.getElementById('tcInput').value=tc2(chase.outHold);  // resume where it stopped
+    toggleChase();toast(label);return}
+  if(cmd==='locate'){
+    const sec=typeof arg==='number'?arg:tcToSec(String(arg??''));
+    if(sec==null){toast(label+' — bad time',true);return}
+    if(locateSec(sec))toast(`OSC locate → ${tc2(sec)}`);return}
+  if(cmd==='nudge'){nudge(+arg||1);return}
+  const act=+document.getElementById('chaseAct').value;
+  const list=cues.map((c,i)=>({c,i})).filter(x=>x.c.kind!=='banner'&&x.c.tcInSec!=null);
+  if(cmd==='cue'){
+    const want=String(arg??'').trim().toLowerCase();
+    const hit=list.find(x=>x.c.act===act&&String(x.c.cue||'').trim().toLowerCase()===want)
+      ||list.find(x=>String(x.c.cue||'').trim().toLowerCase()===want);
+    if(!hit){toast(`OSC cue "${arg}" not found`,true);return}
+    locateToCue(hit.i);return}
+  if(cmd==='next'||cmd==='prev'){
+    const t=transportPos(),inAct=list.filter(x=>x.c.act===act).sort((a,b)=>a.c.tcInSec-b.c.tcInSec);
+    const hit=cmd==='next'?inAct.find(x=>x.c.tcInSec>t+0.05)
+      :[...inAct].reverse().find(x=>x.c.tcInSec<t-1);   // within 1s of a cue start → go to the one before
+    if(!hit){toast(`OSC ${cmd}: no ${cmd==='next'?'next':'previous'} cue`,true);return}
+    locateToCue(hit.i);return}
+}
+/* ---- cue fire → relay → OSC OUT. Sent only while TC is rolling into the cue
+   (continuous playback, or a jump/start right at its TC In) — never on a
+   connect mid-cue or while parked. The relay de-dupes across browsers. ---- */
+function sendCueGo(c){
+  const w=[chase.outWs,chase.ws].find(x=>x&&x.readyState===WebSocket.OPEN);if(!w)return;
+  w.send(JSON.stringify({type:'cue_go',cue:c.cue,label:c.label,dept:c.dept,device:c.device,
+    action:c.action,tc:c.tcIn,act:c.act}));
 }
 tbody.addEventListener('click',e=>{
   if(editMode)return;
@@ -923,6 +966,7 @@ function updateChaseUI(){
   const editEl=document.activeElement;
   const editing=!!(editEl&&editEl.isContentEditable&&tbody.contains(editEl));
 
+  const prevT=chase.prevT;chase.prevT=t;
   if(t==null){
     el.textContent='--:--:--:--';document.getElementById('nowInfo').innerHTML='';document.getElementById('nextInfo').innerHTML='';
     // Chase stopped (or no source) — the cue that was active, if any, must
@@ -958,6 +1002,7 @@ function updateChaseUI(){
     // cue-active row highlight/progress-bar afterward.
     if(chase.activeIdx>=0&&cues[chase.activeIdx])cues[chase.activeIdx].status='Standby';
     if(active)cues[active.i].status='Running';
+    if(active&&((prevT!=null&&t>prevT&&t-prevT<1)||t-active.c.tcInSec<0.5))sendCueGo(active.c);
     chase.activeIdx=newIdx;
     render();
     if(active){

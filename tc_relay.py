@@ -18,21 +18,145 @@ first (see README). Once joined it shows up as a regular MIDI port name.
 Art-Net Timecode (ArtTimeCode, UDP 6454) — e.g. DOREMiDi Timecode Center MTC-30,
 no MIDI driver or session to join, just be on the same subnet:
     ./tc_relay.py --artnet
-    ./tc_relay.py --artnet --artnet-src 10.10.11.214   # ignore other Art-Net TC senders
+    ./tc_relay.py --artnet --artnet-src 10.10.11.226   # ignore other Art-Net TC senders
 
 Art-Net Timecode OUT — the cue sheet's Manual transport (START/STOP/±1s) drives
 an ArtTimeCode stream generated here, e.g. to make an MTC-30 chase it:
     ./tc_relay.py --artnet-out 10.10.11.255            # subnet broadcast
-    ./tc_relay.py --artnet --artnet-out 10.10.11.214   # unicast, and keep listening
+    ./tc_relay.py --artnet --artnet-out 10.10.11.226   # unicast, and keep listening
+
+OSC — send TC + cue fires out, take remote transport in (no extra deps):
+    ./tc_relay.py --artnet-out 10.10.11.226 --osc-out 10.10.11.50:53000   # /tc + /cue/go
+    ./tc_relay.py --fake 01:00:00:00 --osc-out 127.0.0.1:9001 --osc-out 10.10.11.60:8000
+    ./tc_relay.py --artnet-out 10.10.11.226 --osc-in 9000   # /play /stop /locate /cue /next /prev
+    ./tc_relay.py --artnet-out 10.10.11.226 --qlab 127.0.0.1   # cue goes live → QLab /cue/<cue#>/start
 
 Test sans matériel (générateur free-run):
     ./tc_relay.py --fake 01:00:00:00
 """
-import asyncio, json, argparse, time, sys, socket
+import asyncio, json, argparse, time, sys, socket, struct, shlex
 
 clients = set()
 last_cue_sync = None  # most recent cuesheet_sync payload, replayed to newly-joined clients
-artnet_out = None     # ArtnetOut when started with --artnet-out
+manual_out = None     # ManualOut when started with --artnet-out / --osc-out / --osc-in
+osc_out = None        # OscOut when started with --osc-out
+
+# ---------------------------------------------------------------- OSC codec (OSC 1.0, no deps)
+def _osc_str(x: str) -> bytes:
+    b = x.encode() + b"\0"
+    return b + b"\0" * (-len(b) % 4)
+
+def osc_encode(addr: str, args=()) -> bytes:
+    tags, data = ",", b""
+    for a in args:
+        if isinstance(a, bool) or a is None:
+            tags += "T" if a else ("F" if a is False else "N")
+        elif isinstance(a, int):
+            tags += "i"; data += struct.pack(">i", a)
+        elif isinstance(a, float):
+            tags += "f"; data += struct.pack(">f", a)
+        else:
+            tags += "s"; data += _osc_str(str(a))
+    return _osc_str(addr) + _osc_str(tags) + data
+
+def _osc_read_str(buf, i):
+    end = buf.index(b"\0", i)
+    return buf[i:end].decode(errors="replace"), (end + 4) & ~3
+
+def osc_decode(buf: bytes):
+    """Yield (address, [args]) for a message or (nested) bundle."""
+    if buf.startswith(b"#bundle\0"):
+        i = 16
+        while i + 4 <= len(buf):
+            (n,) = struct.unpack(">i", buf[i:i + 4]); i += 4
+            yield from osc_decode(buf[i:i + n]); i += n
+        return
+    addr, i = _osc_read_str(buf, 0)
+    tags, i = _osc_read_str(buf, i) if i < len(buf) else (",", i)
+    args = []
+    for t in tags[1:]:
+        if t == "i":   args.append(struct.unpack(">i", buf[i:i + 4])[0]); i += 4
+        elif t == "f": args.append(struct.unpack(">f", buf[i:i + 4])[0]); i += 4
+        elif t == "d": args.append(struct.unpack(">d", buf[i:i + 8])[0]); i += 8
+        elif t == "h": args.append(struct.unpack(">q", buf[i:i + 8])[0]); i += 8
+        elif t == "s": v, i = _osc_read_str(buf, i); args.append(v)
+        elif t == "T": args.append(True)
+        elif t == "F": args.append(False)
+        elif t == "N": args.append(None)
+        else: break                              # blobs / exotic types: not needed here
+    yield addr, args
+
+def _hostport(s):
+    host, _, port = s.rpartition(":")
+    if not host or not port.isdigit():
+        raise argparse.ArgumentTypeError(f"expected IP:PORT, got {s!r}")
+    return host, int(port)
+
+def _num(tok: str):
+    try: return int(tok)
+    except ValueError:
+        try: return float(tok)
+        except ValueError: return tok
+
+class OscOut:
+    """Send /tc on every new frame and cue fires to OSC targets.
+    Generic targets (--osc-out) get /tc + /cue/go; QLab targets (--qlab) get
+    /cue/<cue#>/start only — QLab has no OSC timecode input."""
+    def __init__(self, targets, qlab=(), tc_addr="/tc", qlab_pass=None):
+        self.targets, self.qlab, self.tc_addr, self.qlab_pass = list(targets), list(qlab), tc_addr, qlab_pass
+        self.last_tc, self.fired = None, {}
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+    def describe(self):
+        return ", ".join([f"{h}:{p}" for h, p in self.targets] + [f"QLab {h}:{p}" for h, p in self.qlab])
+
+    def _sendto(self, targets, addr, args=()):
+        pkt = osc_encode(addr, args)
+        for t in targets:
+            try:
+                self.sock.sendto(pkt, t)
+            except OSError as e:
+                print(f"[osc-out] send to {t[0]}:{t[1]} failed: {e}")
+
+    def send(self, addr, args=()):
+        self._sendto(self.targets, addr, args)
+
+    def send_tc(self, tc: str):
+        if self.targets and tc != self.last_tc:   # one message per new frame, even if two paths report it
+            self.last_tc = tc
+            self.send(self.tc_addr, [tc])
+
+    def cue_go(self, msg):
+        key = (str(msg.get("cue", "")), str(msg.get("label", "")), str(msg.get("tc", "")))
+        now = time.monotonic()
+        if now - self.fired.get(key, -99) < 2:   # several browsers report the same cue — fire once
+            return
+        self.fired = {k: v for k, v in self.fired.items() if now - v < 10}
+        self.fired[key] = now
+        action = str(msg.get("action") or "").strip()
+        raw = None
+        if action.startswith("/"):           # Action column holds a raw OSC command, e.g. /cue/12/go
+            try: toks = shlex.split(action)
+            except ValueError: toks = action.split()
+            raw = (toks[0], [_num(t) for t in toks[1:]])
+        if self.targets:
+            addr, args = raw or ("/cue/go", [str(msg.get(k) or "") for k in ("cue", "label", "dept", "device", "action")])
+            print(f"[osc-out] cue {key[0] or '?'} @ {key[2]} → {addr} {args}")
+            self.send(addr, args)
+        if self.qlab:
+            cue = key[0].strip()
+            if raw:
+                addr, args = raw
+            elif cue:
+                addr, args = f"/cue/{cue}/start", []
+            else:
+                print(f"[qlab] cue without a number @ {key[2]} — nothing to start")
+                return
+            if self.qlab_pass:               # QLab's UDP "connection" lapses after 61s idle — reconnect each time
+                self._sendto(self.qlab, "/connect", [self.qlab_pass])
+            print(f"[qlab] cue {cue or '?'} @ {key[2]} → {addr} {args}")
+            self._sendto(self.qlab, addr, args)
 
 async def ws_handler(websocket):
     global last_cue_sync
@@ -46,16 +170,20 @@ async def ws_handler(websocket):
                 kind = msg.get("type")
             except (json.JSONDecodeError, AttributeError):
                 msg, kind = None, None
-            if kind == "tc_out":             # transport for Art-Net OUT — handled here, not relayed
-                if not artnet_out:
-                    status = {"ok": False, "msg": "relay not started with --artnet-out"}
+            if kind == "tc_out":             # Manual transport for TC OUT — handled here, not relayed
+                if not manual_out:
+                    status = {"ok": False, "msg": "relay not started with --artnet-out / --osc-out / --osc-in"}
                 else:
                     try:
-                        artnet_out.update(msg)
-                        status = {"ok": True, "dest": artnet_out.dest}
+                        manual_out.update(msg)
+                        status = {"ok": True, "dest": manual_out.describe()}
                     except (TypeError, ValueError):
                         status = {"ok": False, "msg": "bad tc_out message"}
                 await websocket.send(json.dumps({"type": "tc_out_status", **status}))
+                continue
+            if kind == "cue_go":             # a cue went live in a browser — fire OSC, not relayed
+                if osc_out:
+                    osc_out.cue_go(msg)
                 continue
             if kind == "cuesheet_sync":
                 last_cue_sync = message
@@ -69,6 +197,8 @@ async def broadcast_raw(msg: str):
     await asyncio.gather(*(c.send(msg) for c in list(clients)), return_exceptions=True)
 
 async def broadcast(tc: str):
+    if osc_out:
+        osc_out.send_tc(tc)
     await broadcast_raw(json.dumps({"tc": tc}))
 
 # ---------------------------------------------------------------- MTC source
@@ -151,14 +281,15 @@ async def artnet_source(port, src_filter=None):
             last = tc
             await broadcast(tc)
 
-# ---------------------------------------------------------------- Art-Net OUT
-class ArtnetOut:
-    """Generate ArtTimeCode from a play/stop/locate transport sent by the page.
-    The relay owns the frame clock so packets go out one per frame on time,
-    whatever the browser's timer jitter."""
+# ---------------------------------------------------------------- Manual OUT (Art-Net and/or OSC)
+class ManualOut:
+    """Generate TC from a play/stop/locate transport sent by the page — as
+    ArtTimeCode (--artnet-out) and/or OSC /tc (--osc-out). The relay owns the
+    frame clock so packets go out one per frame on time, whatever the
+    browser's timer jitter."""
     TYPES = {24: 0, 25: 1, 30: 3}
 
-    def __init__(self, dest, port=6454):
+    def __init__(self, dest=None, port=6454):
         self.dest, self.port = dest, port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -175,9 +306,19 @@ class ArtnetOut:
     def now(self):
         return self.base_sec + (time.monotonic() - self.base_t if self.playing else 0)
 
+    def describe(self):
+        parts = [f"Art-Net {self.dest}"] if self.dest else []
+        if osc_out:
+            parts.append(f"OSC {osc_out.describe()}")
+        return " · ".join(parts) or "remote only (no TC output)"
+
     def send(self, frame):
         fps = self.fps
         hh, rem = divmod(frame // fps, 3600); mm, ss = divmod(rem, 60)
+        if osc_out:
+            osc_out.send_tc(f"{hh % 24:02d}:{mm:02d}:{ss:02d}:{frame % fps:02d}")
+        if not self.dest:
+            return
         pkt = b"Art-Net\0" + b"\x00\x97" + b"\x00\x0e" + b"\x00\x00" + bytes(
             [frame % fps, ss, mm, hh % 24, self.TYPES[fps]])
         try:
@@ -186,7 +327,7 @@ class ArtnetOut:
             print(f"[artnet-out] send failed: {e}")
 
     async def run(self):
-        print(f"[artnet-out] sending to {self.dest}:{self.port} on transport from the cue sheet")
+        print(f"[tc-out] {self.describe()} — driven by the cue sheet's Manual transport")
         await self.wake.wait()               # silent until the page sends a transport — never blast 00:00:00:00
         while True:
             self.wake.clear()
@@ -203,6 +344,43 @@ class ArtnetOut:
                 await asyncio.wait_for(self.wake.wait(), max(0.0, next_at - self.now()))
             except asyncio.TimeoutError:
                 pass
+
+# ---------------------------------------------------------------- OSC IN (remote transport)
+REMOTE_CMDS = {"play", "start", "stop", "toggle", "locate", "nudge", "cue", "next", "prev"}
+
+async def osc_in(port):
+    """Remote-control the cue sheet's Manual transport. Commands are forwarded to
+    the browsers as {"type":"remote"}; a page in Source → Manual applies them, and
+    its TC OUT connection carries the result back to Art-Net/OSC OUT."""
+    loop = asyncio.get_running_loop()
+    queue = asyncio.Queue()
+
+    class Proto(asyncio.DatagramProtocol):
+        def datagram_received(self, data, addr):
+            try:
+                for a, args in osc_decode(data):
+                    queue.put_nowait((a, args, addr[0]))
+            except (ValueError, struct.error, IndexError):
+                pass
+
+    await loop.create_datagram_endpoint(Proto, local_addr=("0.0.0.0", port))
+    print(f"[osc-in] listening on udp/{port}: /play /stop /toggle /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
+    while True:
+        addr, args, src = await queue.get()
+        parts = [p for p in addr.lower().split("/") if p]
+        cmd = parts[-1] if parts else ""
+        if parts[-2:-1] == ["cue"] and cmd not in REMOTE_CMDS:   # /cue/12 → /cue "12"
+            cmd, args = "cue", [addr.split("/")[-1]]
+        if cmd not in REMOTE_CMDS:
+            print(f"[osc-in] ignored {addr} {args} from {src}")
+            continue
+        if cmd in ("play", "start", "stop", "toggle", "next", "prev") and args and args[0] in (0, 0.0, False):
+            continue                          # button release (Companion/TouchOSC send 1 then 0)
+        cmd = "play" if cmd == "start" else cmd
+        arg = args[0] if args else None
+        print(f"[osc-in] {cmd}" + (f" {arg}" if arg is not None else "") + f" from {src}"
+              + ("" if clients else "  (no cue sheet connected — nothing to drive)"))
+        await broadcast_raw(json.dumps({"type": "remote", "cmd": cmd, "arg": arg}))
 
 # ---------------------------------------------------------------- fake source
 async def fake_source(start_tc: str, fps: int):
@@ -229,18 +407,37 @@ async def main():
     ap.add_argument("--artnet-src", metavar="IP", help="Only accept Art-Net TC from this sender")
     ap.add_argument("--artnet-out", metavar="IP", help="Send Art-Net TC driven by the cue sheet's Manual transport "
                                                        "(subnet broadcast like 10.10.11.255, or a device IP)")
+    ap.add_argument("--osc-out", metavar="IP:PORT", type=_hostport, action="append",
+                    help="Send OSC /tc + cue fires to this target (repeatable)")
+    ap.add_argument("--osc-tc-addr", default="/tc", help="OSC address for timecode (default /tc)")
+    ap.add_argument("--qlab", metavar="IP[:PORT]", action="append",
+                    type=lambda v: _hostport(v if ":" in v else v + ":53000"),
+                    help="Fire QLab cues: /cue/<cue#>/start when a cue goes live (port 53000 default, repeatable)")
+    ap.add_argument("--qlab-pass", metavar="PASSCODE", help="QLab workspace OSC passcode, if one is set")
+    ap.add_argument("--osc-in", metavar="PORT", type=int, nargs="?", const=9000,
+                    help="Listen for OSC remote transport (default port 9000)")
     ap.add_argument("--fps", type=int, default=30)
     args = ap.parse_args()
 
     n_src = sum(map(bool, (args.fake, args.mtc, args.artnet)))
-    if n_src > 1 or (n_src == 0 and not args.artnet_out):
-        ap.error("one of --mtc, --artnet or --fake required (or --artnet-out alone)")
+    manual = bool(args.artnet_out or args.osc_out or args.osc_in or args.qlab)
+    if n_src > 1 or (n_src == 0 and not manual):
+        ap.error("one of --mtc, --artnet or --fake required (or --artnet-out / --osc-out / --qlab / --osc-in alone)")
 
-    global artnet_out
+    global manual_out, osc_out
     tasks = []
-    if args.artnet_out:
-        artnet_out = ArtnetOut(args.artnet_out)
-        tasks.append(artnet_out.run())
+    if args.osc_out or args.qlab:
+        osc_out = OscOut(args.osc_out or [], args.qlab or [], args.osc_tc_addr, args.qlab_pass)
+        if args.osc_out:
+            print(f"[osc-out] {args.osc_tc_addr} + cue fires → {', '.join(f'{h}:{p}' for h, p in args.osc_out)}")
+        if args.qlab:
+            print(f"[qlab] /cue/<cue#>/start → {', '.join(f'{h}:{p}' for h, p in args.qlab)}"
+                  + (" (with passcode)" if args.qlab_pass else ""))
+    if manual:
+        manual_out = ManualOut(args.artnet_out)
+        tasks.append(manual_out.run())
+    if args.osc_in:
+        tasks.append(osc_in(args.osc_in))
 
     if not n_src:
         src = None
