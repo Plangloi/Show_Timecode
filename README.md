@@ -102,7 +102,7 @@ Use this instead of steps 3–7 when the **cue sheet is the master clock** and t
    ```
    You should see `[artnet-out] sending to 10.10.11.226:6454 …`. Leave the window open.
 3. On the **MTC-30**, set the timecode source to **Art-Net** (reader mode).
-4. Open `http://localhost:8085` → **Source → Manual** → click **⇢ Art-Net OUT** (dot turns 🔵 blue).
+4. Open `http://localhost:8085` → **Source → Manual** → click **⇢ TC OUT** (dot turns 🔵 blue).
 5. Type a start TC, hit **▶ START** — the MTC-30 follows. **■ STOP** holds, **±1s** nudges.
 
 > 💡 The Mac must be on the show subnet (`10.10.11.x`). Quick check: `ping 10.10.11.226`.
@@ -125,7 +125,7 @@ When in doubt: close the browser tab, reopen `http://localhost:8085`, and redo S
 
 # tc_relay.py — Timecode WebSocket Relay
 
-Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — **Art-Net Timecode**, or a **free-run generator** to any number of WebSocket clients (browsers, OSC bridges, etc.).  
+Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — **Art-Net Timecode**, or a **free-run generator** to any number of WebSocket clients (browsers, etc.), and speaks **OSC** both ways (TC + cue fires out, remote transport in).  
 Used as the TC source backend for `timecode_cue_sheet.html`.
 
 ---
@@ -215,20 +215,73 @@ python3 tc_relay.py --artnet --artnet-out 10.10.11.255     # combine with Art-Ne
 
 In the cue sheet:
 
-1. **Source → Manual** — an **⇢ Art-Net OUT** control appears next to it
-2. Check the URL (pre-filled with `ws://<this page's host>:8765`) → click **⇢ Art-Net OUT** (dot turns blue, toast shows the destination)
+1. **Source → Manual** — a **⇢ TC OUT** control appears next to it
+2. Check the URL (pre-filled with `ws://<this page's host>:8765`) → click **⇢ TC OUT** (dot turns blue, toast shows the destination)
 3. Type a start TC, hit **▶ START** — the relay sends one packet per frame (30 fps, same format as the MTC-30). **■ STOP** holds the last frame, **±1s** and a new start TC locate.
 
 - The browser only sends transport changes; the **relay owns the frame clock**, so packets go out on time regardless of browser timer jitter.
 - Nothing is sent until the page sends its first transport — starting the relay never pushes a stray `00:00:00:00`.
 - On the MTC-30, set its timecode source to **Art-Net** (reader mode).
-- If the relay was started without `--artnet-out`, the page shows *"relay not started with --artnet-out"*.
+- If the relay was started without `--artnet-out` / `--osc-out` / `--osc-in`, the page shows *"relay not started with …"*.
+- The same **⇢ TC OUT** connection also carries OSC OUT and OSC IN (see mode 4 below).
 - With `--artnet` also on, the relay hears its own output, so other screens on **Source → WebSocket** follow the Manual playback too.
 - **On macOS, run this natively, not in Docker** — and stop the Docker `tc-relay` container first (`docker stop tc-relay`), otherwise the native relay fails with `address already in use` on 8765.
 
 ---
 
-### 4. Fake — Free-run generator (no hardware needed)
+### 4. OSC — timecode + cue fires OUT, remote transport IN
+
+Plain UDP OSC 1.0, no extra Python packages. Combine freely with any other mode.
+
+```bash
+python3 tc_relay.py --artnet-out 10.10.11.226 --osc-out 10.10.11.50:53000      # MTC-30 + OSC to one target
+python3 tc_relay.py --mtc "IAC" --osc-out 10.10.11.50:53000 --osc-out 127.0.0.1:9001   # several targets
+python3 tc_relay.py --artnet-out 10.10.11.226 --osc-in 9000                    # remote control on udp/9000
+```
+
+**OSC OUT — timecode** (`--osc-out IP:PORT`, repeatable)
+- `/tc "HH:MM:SS:FF"` once per new frame, from whatever is driving: MTC / Art-Net IN / fake, or the cue sheet's Manual transport via **⇢ TC OUT**.
+- Change the address with `--osc-tc-addr /show/tc`.
+
+**OSC OUT — cue fires** (same targets)
+- When a cue goes live *while TC is rolling into it*, the cue sheet asks the relay to fire it. Not fired: connecting mid-cue, or locating while stopped. Several open browsers fire a cue only once (the relay de-dupes).
+- If the cue's **Action** column starts with `/`, it is sent as-is: `/cue/12/go`, `/exec/1/5 1`, `/scene "Intro"` (numbers become int/float, quotes group words).
+- Otherwise it sends `/cue/go "<cue#>" "<label>" "<dept>" "<device>" "<action>"`.
+- A page fires only if it's connected to the relay: **Source → WebSocket**, or **Manual** with **⇢ TC OUT** connected.
+
+**QLab** (`--qlab IP[:PORT]`, port 53000 default, repeatable)
+
+```bash
+python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 127.0.0.1                  # QLab on this Mac
+python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 10.10.11.40 --qlab-pass 1234   # QLab elsewhere, with OSC passcode
+```
+
+- When a cue goes live, QLab gets **`/cue/<cue#>/start`**. Number the QLab cues the same as the **Cue#** column (e.g. `12`, `LX12`).
+- An **Action** starting with `/` overrides that (e.g. `/cue/12/go`, `/go`, `/cue/SND5/panic`).
+- Cues with an empty Cue# don't fire anything.
+- QLab gets no `/tc`. QLab can't chase timecode over OSC; it reads MTC/LTC only.
+- **In QLab** (Workspace Settings → Network): OSC access must be on. If the workspace has an OSC passcode, pass it with `--qlab-pass`. The relay then sends `/connect` before each fire.
+- To have **QLab drive the cue sheet**, add a QLab **Network cue** that sends `/play`, `/stop`, `/cue 12`, etc. to the relay's `--osc-in` port.
+
+**OSC IN — remote transport** (`--osc-in [PORT]`, default 9000)
+
+Drives the cue sheet's **Manual** transport, so the MTC-30 (Art-Net OUT) and OSC OUT follow. Needs a cue sheet open on **Source → Manual** with **⇢ TC OUT** connected — the relay forwards, the page acts.
+
+| OSC address | Does |
+|---|---|
+| `/play` (or `/start`), `/stop`, `/toggle` | Transport — `/play` resumes from where it stopped |
+| `/locate "01:02:03:04"` or `/locate 3723.5` | Jump to a TC (string) or seconds (number) |
+| `/nudge -1` | ± seconds |
+| `/cue "12"` or `/cue/12` | Locate to cue #12's TC In (current Act first) |
+| `/next`, `/prev` | Locate to the next / previous cue in the current Act |
+
+- Any prefix works (`/tc/play`, `/show/next`) — the relay looks at the last part of the address.
+- Button releases (`/play 0`, sent by Companion/TouchOSC on key-up) are ignored.
+- Docker: publish the UDP port too (`- "9000:9000/udp"`); on macOS run natively as for Art-Net.
+
+---
+
+### 5. Fake — Free-run generator (no hardware needed)
 
 Generates TC from a given start point, incrementing in real time. Useful for testing the cue sheet without any MIDI hardware or network session.
 
@@ -400,6 +453,9 @@ Change `--mtc "MOTU"` to `--mtc "TimeCore"` (or whatever the RTP-MIDI session/po
 | Art-Net, one sender only | `python3 tc_relay.py --artnet --artnet-src 10.10.11.226` |
 | Art-Net OUT from Manual transport | `python3 tc_relay.py --artnet-out 10.10.11.255` |
 | Art-Net OUT, unicast to MTC-30 | `python3 tc_relay.py --artnet-out 10.10.11.226` |
+| OSC OUT (TC + cue fires) | `python3 tc_relay.py --artnet-out 10.10.11.226 --osc-out 10.10.11.50:53000` |
+| QLab cue fires (QLab on this Mac) | `python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 127.0.0.1` |
+| OSC IN remote transport | `python3 tc_relay.py --artnet-out 10.10.11.226 --osc-in 9000` |
 | Free-run from 1h | `python3 tc_relay.py --fake 01:00:00:00` |
 | Free-run, 25fps | `python3 tc_relay.py --fake 00:59:50:00 --fps 25` |
 
