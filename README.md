@@ -179,6 +179,27 @@ In QLab: add a **Network** cue → destination = this Mac, port `9000` → messa
 
 ---
 
+## 🎛️ Other option — the MTC-30 is the master clock (instead of the cue sheet)
+
+Use this when the **MTC-30 generates** the timecode and the cue sheet (and QLab) just follow it.
+
+1. Do steps 1️⃣ and 2️⃣ above.
+2. On the **MTC-30**: set it to **generate** timecode and turn on **Art-Net output**.
+3. Start the relay in Art-Net listen mode (instead of step 3️⃣):
+   ```bash
+   cd ~/Documents/Git/Show_Timecode && uv run --with websockets python3 tc_relay.py --artnet --artnet-src 10.10.11.226 --qlab 127.0.0.1
+   ```
+   ✅ When the MTC-30 runs you'll see `[artnet] timecode from 10.10.11.226 @ 30 fps`.
+4. Cue sheet: **Source → WebSocket**, type `ws://localhost:8765`, **Connect**. The clock turns **🔵 blue** and follows the MTC-30. QLab still gets its cues.
+
+> ⚠️ In this mode start/stop the clock **on the MTC-30**. Don't use **⇢ TC OUT** / Manual, and don't add `--artnet-out` — the Mac and the box would send timecode to each other.
+>
+> 🔌 **RTP-MIDI instead of Art-Net?** If your MTC-30 has RTP-MIDI: **Audio MIDI Setup → Window → Show MIDI Studio → Network**, create a session, connect it to the MTC-30, then run the relay with `uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "Session 1" --qlab 127.0.0.1` (use your session's name).
+
+**Back to normal (cue sheet is master):** stop the relay (**Ctrl + C**), set the MTC-30 back to **Art-Net in** (reader), then redo steps 3️⃣ and 6️⃣.
+
+---
+
 ## 🎼 Other option — Horae is the master clock (instead of the cue sheet)
 
 Use this only if **Horae** generates the timecode and the cue sheet just follows it.
@@ -202,7 +223,7 @@ Use this only if **Horae** generates the timecode and the cue sheet just follows
 | `command not found: uv` | uv not installed, or Terminal not reopened | One-time setup step 2, then **reopen Terminal** |
 | **⇢ TC OUT** says *relay unreachable* | Relay window closed / not started | Step 3️⃣ |
 | Clock stays `--:--:--:--` | Clock not started | Press **▶ START** (Source must be **Manual**) |
-| MTC-30 doesn't follow | Not on the network, or not in Art-Net mode | `ping -c 3 10.10.11.226` · set MTC-30 source to **Art-Net** · check the TC OUT dot is 🔵 |
+| MTC-30 doesn't follow | Not on the network, not in Art-Net mode, or the box is stuck | `ping -c 3 10.10.11.226` · set MTC-30 source to **Art-Net** · check the TC OUT dot is 🔵 · still nothing? **Turn the MTC-30 off and on again** (fixes a stuck box) |
 | QLab doesn't start cues | QLab closed, OSC off, or numbers don't match | QLab open · OSC access ON · QLab cue number = **Cue#** in the cue sheet |
 | QLab cue fires but it's the wrong one | Cue numbers differ | Make QLab's cue number exactly the cue sheet's **Cue#** |
 | Cues never turn green | Wrong Act selected | **Act** dropdown must match the act you're playing |
@@ -283,7 +304,7 @@ Listens for **ArtTimeCode** (OpCode `0x9700`) on UDP **6454**. No MIDI driver, n
 
 ```bash
 python3 tc_relay.py --artnet
-python3 tc_relay.py --artnet --artnet-src 10.10.11.214   # only this sender (others on the net are ignored)
+python3 tc_relay.py --artnet --artnet-src 10.10.11.226   # only this sender (others on the net are ignored)
 ```
 
 On the **DOREMiDi Timecode Center (MTC-30)**, enable Art-Net TimeCode output — it broadcasts to the subnet (e.g. `10.10.11.255`). The relay logs `[artnet] timecode from <ip> @ <fps> fps` on the first packet, so you know it's hearing it.
