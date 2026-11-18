@@ -121,7 +121,8 @@ In the **Chase** bar (just under the big clock):
 |---|---|
 | Choose the act | **Act** dropdown in the Chase bar |
 | Start the clock | Type a start time (e.g. `00:56:00:00`) or leave empty for the act's start → **▶ START** |
-| Stop / hold | **■ STOP** (the MTC-30 holds that frame) |
+| Pause | **❚❚ PAUSE** freezes the clock on that frame (the MTC-30 holds it, the cue stays green) · **▶ RESUME** carries on from there |
+| Stop | **■ STOP** ends the run (the MTC-30 holds the last frame) |
 | Small jump | **−1s / +1s** |
 | Jump to a cue | Click the cue's row (with **✎ Edit: OFF**) — the clock jumps to that cue's start |
 | Mark a moment | **⚑ MARK** (or **Space**) — saves the time in the marker list |
@@ -171,6 +172,7 @@ Send OSC to the show Mac on port **9000** (the relay forwards it to the cue shee
 | Send | Does |
 |---|---|
 | `/play` · `/stop` · `/toggle` | Start / stop the clock |
+| `/pause` | Pause (hold the frame) · send again to resume |
 | `/next` · `/prev` | Jump to next / previous cue |
 | `/cue 12` | Jump to cue 12 |
 | `/locate "01:00:00:00"` | Jump to a time |

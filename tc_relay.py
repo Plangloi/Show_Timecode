@@ -271,12 +271,21 @@ async def artnet_source(port, src_filter=None):
     await loop.create_datagram_endpoint(Proto, sock=sock)
     print(f"[artnet] listening on udp/{port}" + (f" from {src_filter}" if src_filter else ""))
 
-    last, seen = None, None
+    if manual_out:
+        print("[artnet] Manual mode: incoming TC is shown on the page as the device's time (big clock), "
+              "the cue sheet stays the master")
+    last, seen, last_sent = None, None, 0.0
     while True:
         tc, fps, src = await queue.get()
         if seen != (src, fps):
             seen = (src, fps)
             print(f"[artnet] timecode from {src} @ {fps} fps")
+        if manual_out:                       # with --artnet-out: the box's TC is feedback, not the show clock
+            now = time.monotonic()
+            if tc != last or now - last_sent > 0.25:   # keep a held frame alive so the page knows it's live
+                last, last_sent = tc, now
+                await broadcast_raw(json.dumps({"type": "device_tc", "dtc": tc, "src": src}))
+            continue
         if tc != last:                       # sender repeats the frame while stopped
             last = tc
             await broadcast(tc)
@@ -346,7 +355,7 @@ class ManualOut:
                 pass
 
 # ---------------------------------------------------------------- OSC IN (remote transport)
-REMOTE_CMDS = {"play", "start", "stop", "toggle", "locate", "nudge", "cue", "next", "prev"}
+REMOTE_CMDS = {"play", "start", "stop", "pause", "toggle", "locate", "nudge", "cue", "next", "prev"}
 
 async def osc_in(port):
     """Remote-control the cue sheet's Manual transport. Commands are forwarded to
@@ -364,7 +373,7 @@ async def osc_in(port):
                 pass
 
     await loop.create_datagram_endpoint(Proto, local_addr=("0.0.0.0", port))
-    print(f"[osc-in] listening on udp/{port}: /play /stop /toggle /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
+    print(f"[osc-in] listening on udp/{port}: /play /stop /pause /toggle /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
     while True:
         addr, args, src = await queue.get()
         parts = [p for p in addr.lower().split("/") if p]

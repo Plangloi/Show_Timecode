@@ -40,6 +40,9 @@ body{font-family:var(--sans);min-height:100vh}
 .showtc.running{color:var(--amber);text-shadow:0 0 28px rgba(210,153,34,.35)}
 .showtc.ws{color:var(--blue);text-shadow:0 0 28px rgba(88,166,255,.35)}
 .showtc.mtc{color:var(--purple);text-shadow:0 0 28px rgba(188,140,255,.35)}
+.showtc.dev{color:var(--green);text-shadow:0 0 28px rgba(63,185,80,.35)}
+.tc-mini{font-family:var(--font);font-size:1.05rem;font-weight:700;color:var(--dim);letter-spacing:.04em;white-space:nowrap}
+.tc-mini.running{color:var(--amber)}
 .btn-marker{background:var(--flag);color:#000;border:none;border-radius:6px;padding:9px 16px;
   font-size:.85rem;font-weight:700;cursor:pointer;font-family:var(--sans);letter-spacing:.03em;white-space:nowrap}
 .btn-marker:hover{opacity:.85}
@@ -99,6 +102,9 @@ body.markers-open .btn-marker-list{display:none}
 .chase-bar input:focus,.chase-bar select:focus{outline:none;border-color:var(--amber)}
 .btn-chase{background:var(--green);color:#000;border:none;border-radius:6px;padding:8px 18px;font-size:.9rem;cursor:pointer;font-weight:700;font-family:var(--sans)}
 .btn-chase.stop{background:var(--red);color:#fff}
+.btn-chase.pause{background:var(--amber);color:#000}
+.btn-chase.pause.resume{background:var(--green)}
+.btn-chase:disabled{opacity:.35;cursor:default}
 .btn-chase:hover{opacity:.85}
 .ws-dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:4px}
 .ws-dot.ok{background:var(--blue);box-shadow:0 0 6px var(--blue)}
@@ -260,8 +266,10 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
   <div class="chase-bar">
     <label>Chase</label>
     <select id="chaseAct"><option value="1">Act 1</option><option value="2">Act 2</option></select>
+    <span class="tc-mini" id="sheetTC" title="Cue sheet clock — what TC OUT sends. The big clock shows the MTC-30 when it reports back.">--:--:--:--</span>
     <input type="text" id="tcInput" placeholder="01:00:00:00" size="11" title="Set current TC then Start">
     <button class="btn-chase" id="chaseBtn" onclick="toggleChase()">▶ START</button>
+    <button class="btn-chase pause" id="pauseBtn" onclick="togglePause()" disabled title="Freeze the clock on this frame (the MTC-30 holds it) — press again to resume from here">❚❚ PAUSE</button>
     <button class="btn-sm" onclick="nudge(-1)" title="-1s">−1s</button>
     <button class="btn-sm" onclick="nudge(1)" title="+1s">+1s</button>
     <button class="btn-sm active" id="followBtn" onclick="toggleFollow()">⌖ Follow</button>
@@ -571,9 +579,9 @@ document.querySelectorAll('.filters select, .filters input[type="text"]').forEac
    TC CHASE ENGINE
    ========================================================= */
 let chase={running:false,baseSec:0,baseTime:0,ws:null,wsActive:false,lastWsSec:null,
-  outWs:null,outHold:null,
+  outWs:null,outHold:null,devSec:null,devAt:0,
   midi:null,midiInput:null,mtcActive:false,lastMtcSec:null,lastMtcAt:0,mtcFps:30,
-  follow:true,activeIdx:-1};
+  follow:true,activeIdx:-1,paused:false,pauseSec:null};
 
 function chaseNow(){
   if(chase.mtcActive&&chase.lastMtcSec!=null){
@@ -582,7 +590,7 @@ function chaseNow(){
     return chase.lastMtcSec;                   /* stale: freeze */
   }
   if(chase.wsActive&&chase.lastWsSec!=null)return chase.lastWsSec;
-  if(!chase.running)return null;
+  if(!chase.running)return chase.paused?chase.pauseSec:null;   // paused: frozen on that frame
   return chase.baseSec+(performance.now()-chase.baseTime)/1000;
 }
 
@@ -598,25 +606,46 @@ function protoChanged(){
   if(p==='mtc')initMIDI();
 }
 
+function setPauseBtn(){
+  const b=document.getElementById('pauseBtn');
+  b.disabled=!chase.running&&!chase.paused;
+  b.textContent=chase.paused?'▶ RESUME':'❚❚ PAUSE';
+  b.classList.toggle('resume',chase.paused);
+}
+/* PAUSE freezes the clock on the current frame — the big clock, the running
+   cue and the MTC-30 all hold — and RESUME rolls on from that exact frame.
+   STOP (from running or paused) ends the run as before. */
+function togglePause(){
+  if(chase.running){
+    const s=chaseNow();
+    chase.running=false;chase.paused=true;chase.pauseSec=s;chase.outHold=s;
+    document.getElementById('tcInput').value=tc2(s);
+  }else if(chase.paused){
+    chase.baseSec=chase.pauseSec;chase.baseTime=performance.now();
+    chase.running=true;chase.paused=false;
+  }else return;
+  setPauseBtn();updateChaseUI();sendTcOut();
+}
 function toggleChase(){
   const btn=document.getElementById('chaseBtn');
-  if(chase.running){chase.outHold=chaseNow();chase.running=false;btn.textContent='▶ START';btn.classList.remove('stop');updateChaseUI();sendTcOut();return}
+  if(chase.running||chase.paused){chase.outHold=chaseNow();chase.running=false;chase.paused=false;btn.textContent='▶ START';btn.classList.remove('stop');setPauseBtn();updateChaseUI();sendTcOut();return}
   const inp=document.getElementById('tcInput').value.trim();
   let sec=inp?tcToSec(inp):null;
   if(sec==null)sec=ACT_ANCHOR[+document.getElementById('chaseAct').value];
   chase.baseSec=sec;chase.baseTime=performance.now();chase.running=true;
-  btn.textContent='■ STOP';btn.classList.add('stop');
+  btn.textContent='■ STOP';btn.classList.add('stop');setPauseBtn();
   sendTcOut();
 }
 function nudge(d){
   if(chase.running){chase.baseSec+=d}
+  else if(chase.paused){chase.pauseSec+=d;chase.outHold=chase.pauseSec;document.getElementById('tcInput').value=tc2(chase.pauseSec)}
   else{const cur=tcToSec(document.getElementById('tcInput').value)||ACT_ANCHOR[+document.getElementById('chaseAct').value];
     document.getElementById('tcInput').value=tc2(cur+d);chase.outHold=cur+d}
   sendTcOut();
 }
 document.getElementById('tcInput').addEventListener('change',e=>{
   const s=tcToSec(e.target.value);
-  if(!chase.running&&s!=null){chase.outHold=s;sendTcOut()}
+  if(!chase.running&&s!=null){chase.outHold=s;if(chase.paused)chase.pauseSec=s;sendTcOut()}
 });
 
 /* ---- Art-Net OUT — the relay (--artnet-out) generates ArtTimeCode frames;
@@ -639,6 +668,7 @@ function toggleArtnetOut(){
   ws.onmessage=ev=>{
     let j=null;try{j=JSON.parse(ev.data)}catch(e){return}
     if(j&&j.type==='remote'){applyRemote(j.cmd,j.arg);return}   // OSC IN via the relay
+    if(j&&j.type==='device_tc'){const s=tcToSec(j.dtc);if(s!=null){chase.devSec=s;chase.devAt=performance.now()}return}   // MTC-30 feedback (--artnet)
     if(!j||j.type!=='tc_out_status')return;   // TC / cue-sheet sync from other hosts: not ours
     if(!j.ok){toast('TC OUT: '+j.msg,true);ws.close();return}
     if(!announced){announced=true;toast('TC OUT → '+j.dest)}
@@ -656,7 +686,7 @@ function locateSec(sec){
   if(chase.wsActive||chase.mtcActive){
     toast('External TC source is driving — set Source → Manual to locate',true);return false}
   if(chase.running){chase.baseSec=sec;chase.baseTime=performance.now()}
-  else chase.outHold=sec;
+  else{chase.outHold=sec;if(chase.paused)chase.pauseSec=sec}
   sendTcOut();return true;
 }
 function locateToCue(idx){
@@ -674,8 +704,10 @@ function transportPos(){
 function applyRemote(cmd,arg){
   if(document.getElementById('tcProto').value!=='manual')return;
   const label='OSC '+cmd+(arg!=null?' '+arg:'');
+  if(cmd==='pause'){if(chase.running||chase.paused){togglePause();toast(label)}return}
   if(cmd==='play'||cmd==='stop'||cmd==='toggle'){
-    if(cmd==='play'&&chase.running||cmd==='stop'&&!chase.running)return;
+    if(chase.paused&&cmd!=='stop'){togglePause();toast(label);return}   // play / toggle while paused = resume
+    if(cmd==='play'&&chase.running||cmd==='stop'&&!chase.running&&!chase.paused)return;
     if(!chase.running&&chase.outHold!=null)document.getElementById('tcInput').value=tc2(chase.outHold);  // resume where it stopped
     toggleChase();toast(label);return}
   if(cmd==='locate'){
@@ -872,6 +904,7 @@ function toggleWS(){
       let j=null;
       try{j=JSON.parse(ev.data)}catch(e){}
       if(j&&j.type==='cuesheet_sync'){applyRemoteSync(j);return}
+      if(j&&j.type==='device_tc')return;
       const t=(j&&(j.tc||j.timecode))||ev.data;
       const s=tcToSec(String(t));
       if(s!=null)chase.lastWsSec=s;
@@ -960,6 +993,15 @@ function updateChaseUI(){
   el.classList.toggle('running',chase.running&&!chase.wsActive&&!chase.mtcActive);
   el.classList.toggle('ws',chase.wsActive);
   el.classList.toggle('mtc',chase.mtcActive);
+  // Big clock = the MTC-30's own time when the relay reports it back (fresh < 1s);
+  // the small readout by START always shows the cue sheet clock (what TC OUT sends).
+  const dev=!!chase.outWs&&chase.devSec!=null&&performance.now()-chase.devAt<1000;
+  el.classList.toggle('dev',dev);
+  const mini=document.getElementById('sheetTC');
+  mini.textContent=t==null?'--:--:--:--':tc2(t);
+  mini.classList.toggle('running',chase.running&&!chase.wsActive&&!chase.mtcActive);
+  if(document.getElementById('tcProto').value==='manual')
+    document.getElementById('tcSrcLabel').textContent=dev?'(MTC-30)':'';
   // If the user is mid-edit in a table cell, skip applying a transition this
   // tick rather than call render() out from under them — it'll retry on the
   // next 100ms tick, so it applies within a beat of them blurring the field.
@@ -968,7 +1010,7 @@ function updateChaseUI(){
 
   const prevT=chase.prevT;chase.prevT=t;
   if(t==null){
-    el.textContent='--:--:--:--';document.getElementById('nowInfo').innerHTML='';document.getElementById('nextInfo').innerHTML='';
+    el.textContent=dev?tc2(chase.devSec):'--:--:--:--';document.getElementById('nowInfo').innerHTML='';document.getElementById('nextInfo').innerHTML='';
     // Chase stopped (or no source) — the cue that was active, if any, must
     // revert to Standby here too (was previously skipped, leaving it stuck
     // on green "Running"). Mutating status *then* calling render() also
@@ -982,7 +1024,7 @@ function updateChaseUI(){
     }
     return;
   }
-  el.textContent=tc2(t);
+  el.textContent=dev?tc2(chase.devSec):tc2(t);
 
   const act=+document.getElementById('chaseAct').value;
   const actCues=cues.map((c,i)=>({c,i})).filter(x=>x.c.kind!=='banner'&&x.c.act===act&&x.c.tcInSec!=null);
