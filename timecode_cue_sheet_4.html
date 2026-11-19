@@ -91,6 +91,8 @@ body.markers-open .btn-marker-list{display:none}
 .marker-name:hover{background:rgba(88,166,255,.08)}
 .marker-name:focus{background:rgba(88,166,255,.15)}
 .marker-name{flex:1}
+.marker-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.marker-note{font-size:.78rem;color:var(--text2);min-height:1em}
 .marker-by{font-size:.72rem;color:var(--dim);background:var(--border);border-radius:999px;padding:1px 8px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:0 2px;line-height:1}
 .marker-del:hover{color:var(--red)}
@@ -832,9 +834,13 @@ function applyRemote(cmd,arg,from){
     if(sec==null){toast(label+' — bad time',true);return}
     if(locateSec(sec))toast(`OSC locate → ${tc2(sec)}`);return}
   if(cmd==='nudge'){nudge(+arg||1);return}
-  if(cmd==='mark'){   // arg = the sender's name (phone / OSC "/mark LX"); else the device address the relay saw
-    const name=typeof arg==='string'&&arg.trim()?arg.trim().slice(0,32):null;
-    captureMarker(name||(from?'device '+from:'remote'));return}
+  if(cmd==='mark'){   // arg = OSC "/mark LX" text, or a phone's {by, id}; no name → the device address the relay saw
+    const o=arg&&typeof arg==='object'?arg:{by:arg};
+    const name=typeof o.by==='string'&&o.by.trim()?o.by.trim().slice(0,32):null;
+    captureMarker(name||(from?'device '+from:'remote'),typeof o.id==='string'?o.id.slice(0,40):null);return}
+  if(cmd==='marknote'){   // a phone adds / edits a marker's note: {id, note}
+    if(arg&&typeof arg==='object'&&typeof arg.id==='string')setMarkerNote(arg.id,String(arg.note??''),true);
+    return}
   if(cmd==='act'){
     const sel=document.getElementById('chaseAct');
     if([...sel.options].some(o=>o.value===String(arg))){sel.value=String(arg);sendTcOut();toast('Act '+arg)}
@@ -883,14 +889,15 @@ function toggleFollow(){chase.follow=!chase.follow;document.getElementById('foll
    live TC into a named, editable list; synced like any other edit.
    ========================================================= */
 function markerId(){return 'm'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
-function captureMarker(by){
+function captureMarker(by,id){
   by=typeof by==='string'&&by?by:'Mac';   // who made it — the Mac's own ⚑ MARK / Space is "Mac"
+  if(id&&markers.some(m=>m.id===id))return;   // same phone request seen twice
   const t=chaseNow();
   if(t==null){toast('No live TC — start the chase or connect a source first',true);return}
   markerSeq++;
   const active=chase.activeIdx>=0?cues[chase.activeIdx]:null;
   const name=(active&&active.label)?active.label:'Marker '+markerSeq;
-  const m={id:markerId(),seq:markerSeq,name,sec:t,tc:tc2(t),by};
+  const m={id:id||markerId(),seq:markerSeq,name,sec:t,tc:tc2(t),by,note:''};
   markers.unshift(m);
   renderMarkers();
   saveState();
@@ -899,6 +906,14 @@ function captureMarker(by){
 function deleteMarker(id){
   markers=markers.filter(m=>m.id!==id);
   renderMarkers();saveState();
+}
+function setMarkerNote(id,note,fromRemote){
+  const m=markers.find(m=>m.id===id);if(!m)return;
+  const val=note.trim().slice(0,500);
+  if((m.note||'')===val)return;
+  m.note=val;
+  if(fromRemote){renderMarkers();toast('Note on marker '+m.tc+(m.by?' · by '+m.by:''))}
+  saveState();
 }
 function renameMarker(id,name){
   const m=markers.find(m=>m.id===id);if(!m)return;
@@ -979,10 +994,17 @@ function renderMarkers(){
   el.innerHTML=markers.map(m=>`
     <div class="marker-row">
       <span class="marker-tc" onclick="jumpToMarker(${m.sec})" title="Set TC input to this marker">${m.tc}</span>
-      <span class="marker-name" contenteditable="true" data-id="${m.id}">${esc(m.name)}</span>
+      <div class="marker-body">
+        <span class="marker-name" contenteditable="true" data-id="${m.id}">${esc(m.name)}</span>
+        <span class="marker-note" contenteditable="true" data-id="${m.id}" data-ph="add note…">${esc(m.note||'')}</span>
+      </div>
       ${m.by?`<span class="marker-by" title="Made by">${esc(m.by)}</span>`:''}
       <button class="marker-del" onclick="deleteMarker('${m.id}')" title="Remove marker">✕</button>
     </div>`).join('');
+  el.querySelectorAll('.marker-note').forEach(sp=>{
+    sp.addEventListener('blur',()=>setMarkerNote(sp.dataset.id,sp.textContent));
+    sp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sp.blur()}});
+  });
   el.querySelectorAll('.marker-name').forEach(sp=>{
     sp.addEventListener('blur',()=>renameMarker(sp.dataset.id,sp.textContent));
     sp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sp.blur()}});

@@ -12,8 +12,9 @@
 <!--
   Phone screen for the cue sheet. Talks to the relay (ws://<show Mac>:8765):
   shows the show clock, transport state, cue list with notes and the marker
-  list. Its only control is ⚑ MARK, sent as {"type":"remote","cmd":"mark"} —
-  the cue sheet on the Mac (Source → Manual, ⇢ TC OUT) captures the marker.
+  list. Its only controls are ⚑ MARK ({"type":"remote","cmd":"mark"}) and
+  marker notes ("marknote") — the cue sheet on the Mac (Source → Manual,
+  ⇢ TC OUT) captures / stores them. It asks for the user's name on load.
   Nothing on this page can play, stop or move the show.
   Open http://<show Mac>:8085/remote.html — add ?ws=ws://host:port to override.
 -->
@@ -76,10 +77,27 @@ main.show{display:flex}
 .markbtn{margin-left:auto;height:44px;padding:0 18px;border-radius:12px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font-weight:700;font-size:14px;letter-spacing:.04em;display:inline-flex;align-items:center;gap:8px}
 .markbtn:active{transform:scale(.97);background:var(--border)}
 .markbtn svg{color:var(--amber2)}
-.who{display:flex;align-items:center;gap:8px;padding:0 2px 4px;font-size:12px;color:var(--dim)}
-.who input{flex:1;min-width:0;height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font:inherit;font-size:14px}
-.who input:focus{outline:none;border-color:var(--blue)}
-.who.ask input{border-color:var(--amber2)}
+.whochip{align-self:flex-start;height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--border2);background:transparent;color:var(--dim);font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.whochip b{color:var(--text);font-weight:600}
+.whochip.ask{border-color:var(--amber2);color:var(--amber2)}
+/* popups — name (on load) and marker note (after MARK / tap a marker) */
+.ov{position:fixed;inset:0;z-index:50;background:rgba(5,6,8,.72);display:flex;align-items:flex-end;justify-content:center;padding:16px 12px calc(16px + env(safe-area-inset-bottom))}
+.ov[hidden]{display:none}
+.ov.center{align-items:center}
+.sheet{width:100%;max-width:480px;background:var(--surface);border:1px solid var(--border2);border-radius:18px;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.sheet h3{font-size:18px;font-weight:700}
+.sheet p{font-size:13px;color:var(--dim);line-height:1.45;margin-top:-4px}
+.sheet input,.sheet textarea{width:100%;border-radius:12px;border:1px solid var(--border2);background:var(--bg);color:var(--text);font:inherit;font-size:16px;padding:12px 14px}
+.sheet textarea{resize:vertical;min-height:84px;line-height:1.4}
+.sheet input:focus,.sheet textarea:focus{outline:none;border-color:var(--blue)}
+.sheet .row{display:flex;gap:10px}
+.sheet .row button{flex:1;height:50px;border-radius:12px;font-weight:700;font-size:15px}
+.sheet .pri{border:0;background:var(--blue);color:var(--bg)}
+.sheet .sec{border:1px solid var(--border2);background:transparent;color:var(--text2)}
+.mark{cursor:pointer;text-align:left;width:100%;color:inherit;font:inherit}
+.mark:active{background:var(--border)}
+.mark .mnote{font-size:13px;color:var(--text2);line-height:1.4;word-break:break-word}
+.mark .addnote{font-size:12px;color:var(--muted)}
 .mark .by{font-family:var(--sans);color:var(--text2)}
 .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1}
@@ -152,7 +170,7 @@ nav button.on{background:var(--border);color:var(--text)}
     <section class="marks" aria-label="Markers">
       <div class="mhead"><span class="k mk">MARKERS</span><span class="badge" id="mBadge"></span>
         <button class="markbtn" id="markBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>MARK</button></div>
-      <label class="who" id="whoRow">Marking as <input id="who" type="text" maxlength="32" placeholder="your name (e.g. SM, LX)" autocomplete="off" enterkeyhint="done"></label>
+      <button class="whochip" id="whoChip" type="button">Marking as <b id="whoName">—</b> ✎</button>
       <div id="mlist"><div class="empty">No markers yet — they appear here when someone presses ⚑ MARK on the Mac.</div></div>
     </section>
   </main>
@@ -168,6 +186,24 @@ nav button.on{background:var(--border);color:var(--text)}
   </nav>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<div class="ov center" id="nameOv" hidden>
+  <form class="sheet" id="nameForm" role="dialog" aria-modal="true" aria-labelledby="nameH">
+    <h3 id="nameH">Who's marking?</h3>
+    <p>Your name goes on every marker you make from this phone, so everyone knows who flagged what.</p>
+    <input id="nameIn" type="text" maxlength="32" placeholder="e.g. SM, LX, Patrice" autocomplete="off" enterkeyhint="done" aria-label="Your name">
+    <div class="row"><button type="button" class="sec" id="nameSkip">Skip</button><button type="button" class="pri" id="nameOk">Continue</button></div>
+  </form>
+</div>
+
+<div class="ov" id="noteOv" hidden>
+  <form class="sheet" id="noteForm" role="dialog" aria-modal="true" aria-labelledby="noteH">
+    <h3 id="noteH">Note</h3>
+    <p id="noteSub"></p>
+    <textarea id="noteIn" maxlength="500" rows="3" placeholder="What happened? (optional)" aria-label="Marker note"></textarea>
+    <div class="row"><button type="button" class="sec" id="noteSkip">Skip</button><button type="button" class="pri" id="noteSave">Save note</button></div>
+  </form>
+</div>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -203,20 +239,59 @@ let toastT;function toast(m,err){const t=$('toast');t.textContent=m;t.classList.
 $('markBtn').addEventListener('click',()=>{
   if(!S.ws||S.ws.readyState!==WebSocket.OPEN){toast('Not connected to the relay',true);return}
   if(S.state==null){toast('Cue sheet not connected — click ⇢ TC OUT on the Mac',true);return}
-  const before=S.markers.length,me=$('who').value.trim();
-  S.ws.send(JSON.stringify({type:'remote',cmd:'mark',arg:me||null}));   // no name: the relay stamps this phone's address
-  if(!me){$('whoRow').classList.add('ask');setTimeout(()=>$('who').focus(),1300)}   // never delay the mark — ask after
+  const me=myName(),id='p'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),at=tc2(now());
+  // the marker is sent FIRST (taken at the Mac's clock right now) — the note sheet only opens after
+  S.ws.send(JSON.stringify({type:'remote',cmd:'mark',arg:{by:me||null,id}}));   // no name: the relay stamps this phone's address
   if(navigator.vibrate)navigator.vibrate(10);
+  openNote(id,'',at,true);
   setTimeout(()=>{                                   // the new marker comes back in the cue-sheet sync
-    if(S.markers.length>before)toast('Marker captured @ '+([...S.markers].sort((a,b)=>(b.seq||0)-(a.seq||0))[0].tc||'')+(me?'':' — add your name below'));
-    else toast('Not captured — is the clock running on the Mac?',true);
+    const m=S.markers.find(m=>m.id===id);
+    if(m){if(!$('noteOv').hidden&&noteFor===id)$('noteSub').textContent=noteSubFor(m);else toast('Marker captured @ '+m.tc)}
+    else{if(noteFor===id)closeNote();toast('Not captured — is the clock running on the Mac?',true)}
   },1200);
 });
 
-/* "Marking as" — remembered on this phone */
-try{$('who').value=localStorage.getItem('markBy')||''}catch(e){}
-$('who').addEventListener('input',()=>{$('whoRow').classList.remove('ask');try{localStorage.setItem('markBy',$('who').value.trim())}catch(e){}});
-$('who').addEventListener('keydown',e=>{if(e.key==='Enter')$('who').blur()});
+/* ---- name — asked when the page opens, remembered on this phone ---- */
+function myName(){try{return(localStorage.getItem('markBy')||'').trim()}catch(e){return''}}
+function showName(){const n=myName();$('whoName').textContent=n||'this phone';$('whoChip').classList.toggle('ask',!n)}
+function openName(){$('nameIn').value=myName();$('nameOv').hidden=false;$('nameIn').focus()}
+/* Popup buttons act on the finger DOWN: on a phone the first tap would otherwise just close the
+   keyboard, the sheet jumps, and the tap lands on nothing ("Save note does nothing"). */
+function onTap(el,fn){
+  el.addEventListener('pointerdown',e=>{if(e.button>0)return;e.preventDefault();fn()});   // keeps the keyboard up until we're done
+  el.addEventListener('click',e=>{if(e.detail===0)fn()});                                  // keyboard Enter / Space on the button
+}
+function saveName(){try{localStorage.setItem('markBy',$('nameIn').value.trim().slice(0,32))}catch(e){}
+  $('nameIn').blur();$('nameOv').hidden=true;showName()}
+$('nameForm').addEventListener('submit',e=>{e.preventDefault();saveName()});   // Enter / "Done" in the name field
+onTap($('nameOk'),saveName);
+onTap($('nameSkip'),()=>{$('nameIn').blur();$('nameOv').hidden=true;showName()});
+$('whoChip').addEventListener('click',openName);
+showName();openName();
+
+/* ---- marker note — after MARK, or tap any marker to add / edit its note ---- */
+let noteFor=null;
+function noteSubFor(m){return`${m.tc||''} · ${m.name||''}${m.by?' · by '+m.by:''}`}
+function openNote(id,text,at,isNew){
+  noteFor=id;$('noteIn').value=text||'';
+  $('noteH').textContent=isNew?'Marker captured — add a note?':'Marker note';
+  const m=S.markers.find(m=>m.id===id);
+  $('noteSub').textContent=m?noteSubFor(m):(at?at+' · ':'')+'waiting for the Mac…';
+  $('noteOv').hidden=false;$('noteIn').focus();   // focus inside the tap, so iOS opens the keyboard
+}
+function closeNote(){$('noteOv').hidden=true;noteFor=null;$('noteIn').blur()}
+function saveNote(){
+  if(!noteFor)return closeNote();
+  if(!S.ws||S.ws.readyState!==WebSocket.OPEN){toast('Not connected — note not saved',true);return}
+  S.ws.send(JSON.stringify({type:'remote',cmd:'marknote',arg:{id:noteFor,note:$('noteIn').value.trim().slice(0,500)}}));
+  toast('Note saved');closeNote();
+}
+$('noteForm').addEventListener('submit',e=>{e.preventDefault();saveNote()});
+onTap($('noteSave'),saveNote);
+onTap($('noteSkip'),closeNote);
+$('noteIn').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();saveNote()}});
+$('mlist').addEventListener('click',e=>{const b=e.target.closest('.mark');if(!b)return;
+  const m=S.markers.find(m=>m.id===b.dataset.id);if(m)openNote(m.id,m.note||'',m.tc,false)});
 
 /* ---- tabs ---- */
 const TABS={remote:'tabRemote',cues:'tabCues'};
@@ -279,11 +354,11 @@ function render(){
 
   // markers — newest first, as on the Mac's marker panel
   const ms=[...S.markers].sort((a,b)=>(b.seq||0)-(a.seq||0));
-  const mkey=ms.map(m=>m.id+(m.name||'')+m.tc+(m.by||'')).join(';');
+  const mkey=ms.map(m=>m.id+(m.name||'')+m.tc+(m.by||'')+'|'+(m.note||'')).join(';');
   if(mkey!==S.lastMarkKey){S.lastMarkKey=mkey;
     $('mBadge').textContent=ms.length||'';
-    $('mlist').innerHTML=ms.length?ms.map(m=>`<div class="mark"><span class="mt">${esc(m.tc||tc2(m.sec)||'')}</span>
-      <span class="mb"><span class="mn">${esc(m.name||'Marker '+(m.seq||''))}</span><span class="ms">#${esc(m.seq??'')}${m.by?` · <span class="by">by ${esc(m.by)}</span>`:''}</span></span></div>`).join('')
+    $('mlist').innerHTML=ms.length?ms.map(m=>`<button type="button" class="mark" data-id="${esc(m.id)}"><span class="mt">${esc(m.tc||tc2(m.sec)||'')}</span>
+      <span class="mb"><span class="mn">${esc(m.name||'Marker '+(m.seq||''))}</span>${m.note?`<span class="mnote">${esc(m.note)}</span>`:'<span class="addnote">tap to add a note</span>'}<span class="ms">#${esc(m.seq??'')}${m.by?` · <span class="by">by ${esc(m.by)}</span>`:''}</span></span></button>`).join('')
       :'<div class="empty">No markers yet — they appear here when someone presses ⚑ MARK on the Mac.</div>';
   }
 }
