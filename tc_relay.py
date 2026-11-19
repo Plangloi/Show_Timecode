@@ -271,12 +271,23 @@ async def artnet_source(port, src_filter=None):
     await loop.create_datagram_endpoint(Proto, sock=sock)
     print(f"[artnet] listening on udp/{port}" + (f" from {src_filter}" if src_filter else ""))
 
-    last, seen = None, None
+    if manual_out:
+        print("[artnet] Manual mode: incoming TC is shown on the page as the device's time (big clock), "
+              "the cue sheet stays the master")
+    last, seen, last_sent = None, set(), 0.0
     while True:
         tc, fps, src = await queue.get()
-        if seen != (src, fps):
-            seen = (src, fps)
+        if manual_out and src == manual_out.local_ip:
+            continue                         # our own Art-Net OUT coming back — screens already get it directly
+        if (src, fps) not in seen:
+            seen.add((src, fps))
             print(f"[artnet] timecode from {src} @ {fps} fps")
+        if manual_out:                       # with --artnet-out: the box's TC is feedback, not the show clock
+            now = time.monotonic()
+            if tc != last or now - last_sent > 0.25:   # keep a held frame alive so the page knows it's live
+                last, last_sent = tc, now
+                await broadcast_raw(json.dumps({"type": "device_tc", "dtc": tc, "src": src}))
+            continue
         if tc != last:                       # sender repeats the frame while stopped
             last = tc
             await broadcast(tc)
@@ -295,6 +306,15 @@ class ManualOut:
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.playing, self.base_sec, self.base_t, self.fps = False, 0.0, 0.0, 30
         self.wake = asyncio.Event()
+        self.local_ip = None                 # our own address toward dest — to ignore our own Art-Net echo
+        if dest:
+            try:
+                probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                probe.connect((dest, port))
+                self.local_ip = probe.getsockname()[0]
+                probe.close()
+            except OSError:
+                pass
 
     def update(self, msg):
         fps = int(msg.get("fps") or 30)
@@ -315,8 +335,11 @@ class ManualOut:
     def send(self, frame):
         fps = self.fps
         hh, rem = divmod(frame // fps, 3600); mm, ss = divmod(rem, 60)
+        tc = f"{hh % 24:02d}:{mm:02d}:{ss:02d}:{frame % fps:02d}"
         if osc_out:
-            osc_out.send_tc(f"{hh % 24:02d}:{mm:02d}:{ss:02d}:{frame % fps:02d}")
+            osc_out.send_tc(tc)
+        if clients:                          # other screens on Source → WebSocket follow the show clock
+            asyncio.get_running_loop().create_task(broadcast_raw(json.dumps({"tc": tc})))
         if not self.dest:
             return
         pkt = b"Art-Net\0" + b"\x00\x97" + b"\x00\x0e" + b"\x00\x00" + bytes(
@@ -346,7 +369,7 @@ class ManualOut:
                 pass
 
 # ---------------------------------------------------------------- OSC IN (remote transport)
-REMOTE_CMDS = {"play", "start", "stop", "toggle", "locate", "nudge", "cue", "next", "prev"}
+REMOTE_CMDS = {"play", "start", "stop", "pause", "toggle", "locate", "nudge", "cue", "next", "prev"}
 
 async def osc_in(port):
     """Remote-control the cue sheet's Manual transport. Commands are forwarded to
@@ -364,7 +387,7 @@ async def osc_in(port):
                 pass
 
     await loop.create_datagram_endpoint(Proto, local_addr=("0.0.0.0", port))
-    print(f"[osc-in] listening on udp/{port}: /play /stop /toggle /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
+    print(f"[osc-in] listening on udp/{port}: /play /stop /pause /toggle /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
     while True:
         addr, args, src = await queue.get()
         parts = [p for p in addr.lower().split("/") if p]

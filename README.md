@@ -1,5 +1,5 @@
 # Show_Timecode
-Show time code tracking
+A cue sheet web page that runs the show clock and sends it to the DOREMiDi MTC-30 (Art-Net timecode) and QLab (OSC).
 
 ---
 
@@ -31,7 +31,7 @@ Follow the steps **in order, top to bottom**. Every command is something you cop
 
 - **Cue sheet** — the web page with the big clock and the list of cues.
 - **Relay** — a small program that takes the clock from the cue sheet and sends it out to the gear.
-- **MTC-30** — the DOREMiDi timecode box at `10.10.11.226`. It follows the cue sheet's clock (Art-Net timecode).
+- **MTC-30** — the DOREMiDi timecode box at `10.10.11.226`. It follows the cue sheet's clock (Art-Net timecode). If its Art-Net output is on, the big clock shows the box's own time.
 - **QLab** — when the clock reaches a cue, QLab gets told to **start the cue with the same number**.
 
 ---
@@ -71,19 +71,19 @@ Open **Docker** from Applications. Wait until the whale icon in the top menu bar
 In Terminal, paste:
 
 ```bash
-cd ~/Documents/Git/Show_Timecode && docker compose up -d cuesheet && docker stop tc-relay 2>/dev/null; echo READY
+cd ~/Documents/Git/Show_Timecode && docker compose up -d --force-recreate cuesheet && docker stop tc-relay 2>/dev/null; echo READY
 ```
 
 ✅ You should see `READY` at the end.
 
-> ⚠️ This starts **only the cue sheet page** and makes sure Docker's *test* clock is off — it would block the real relay in the next step.
+> ⚠️ This starts **only the cue sheet page** (always the latest version of the file) and makes sure Docker's *test* clock is off — it would block the real relay in the next step.
 
 ### 3️⃣ Start the relay (leave this window open!)
 
-In the **same** Terminal, paste:
+In Terminal, paste:
 
 ```bash
-uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 127.0.0.1 --osc-in 9000
+cd ~/Documents/Git/Show_Timecode && uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226 --artnet --artnet-src 10.10.11.226 --qlab 127.0.0.1 --osc-in 9000
 ```
 
 ✅ You should see something like:
@@ -93,6 +93,8 @@ uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 12
 [ws] broadcasting on ws://0.0.0.0:8765
 [tc-out] Art-Net 10.10.11.226 · OSC QLab 127.0.0.1:53000 — driven by the cue sheet's Manual transport
 [osc-in] listening on udp/9000: ...
+[artnet] listening on udp/6454 from 10.10.11.226
+[artnet] Manual mode: incoming TC is shown on the page as the device's time ...
 ```
 
 - 🔒 If the Mac pops up *"Do you want python to accept incoming connections?"* → click **Allow**.
@@ -100,7 +102,7 @@ uv run --with websockets python3 tc_relay.py --artnet-out 10.10.11.226 --qlab 12
 
 ### 4️⃣ Set the MTC-30 and QLab
 
-- **MTC-30:** set its timecode source to **Art-Net** (reader mode).
+- **MTC-30:** set its timecode source to **Art-Net** (reader mode). *Optional:* also turn on its **Art-Net output** — then the big clock shows the box's own time, so you can see it really follows.
 - **QLab:** open your show workspace.
 
 ### 5️⃣ Open the cue sheet
@@ -121,7 +123,8 @@ In the **Chase** bar (just under the big clock):
 |---|---|
 | Choose the act | **Act** dropdown in the Chase bar |
 | Start the clock | Type a start time (e.g. `00:56:00:00`) or leave empty for the act's start → **▶ START** |
-| Stop / hold | **■ STOP** (the MTC-30 holds that frame) |
+| Pause | **❚❚ PAUSE** freezes the clock on that frame (the MTC-30 holds it, the cue stays green) · **▶ RESUME** carries on from there |
+| Stop | **■ STOP** ends the run (the MTC-30 holds the last frame) |
 | Small jump | **−1s / +1s** |
 | Jump to a cue | Click the cue's row (with **✎ Edit: OFF**) — the clock jumps to that cue's start |
 | Mark a moment | **⚑ MARK** (or **Space**) — saves the time in the marker list |
@@ -129,6 +132,8 @@ In the **Chase** bar (just under the big clock):
 
 While it runs:
 - The big clock counts **🟠 orange**, the **MTC-30** shows the same time.
+- The small time just left of **▶ START** is always the cue sheet's own clock (what's being sent out).
+- If the MTC-30 sends its time back, the big clock turns **🟢 green** and says **(MTC-30)** — that's the box's own time.
 - The current cue turns **🟢 green "Running"**, and **QLab starts the cue with the same number**.
 - **NOW** (left) and **NEXT in …** (right) show what's playing and what's coming.
 
@@ -171,11 +176,33 @@ Send OSC to the show Mac on port **9000** (the relay forwards it to the cue shee
 | Send | Does |
 |---|---|
 | `/play` · `/stop` · `/toggle` | Start / stop the clock |
+| `/pause` | Pause (hold the frame) · send again to resume |
 | `/next` · `/prev` | Jump to next / previous cue |
 | `/cue 12` | Jump to cue 12 |
 | `/locate "01:00:00:00"` | Jump to a time |
 
 In QLab: add a **Network** cue → destination = this Mac, port `9000` → message e.g. `/next`.
+
+---
+
+## 🎛️ Other option — the MTC-30 is the master clock (instead of the cue sheet)
+
+Use this when the **MTC-30 generates** the timecode and the cue sheet (and QLab) just follow it.
+
+1. Do steps 1️⃣ and 2️⃣ above.
+2. On the **MTC-30**: set it to **generate** timecode and turn on **Art-Net output**.
+3. Start the relay in Art-Net listen mode (instead of step 3️⃣):
+   ```bash
+   cd ~/Documents/Git/Show_Timecode && uv run --with websockets python3 tc_relay.py --artnet --artnet-src 10.10.11.226 --qlab 127.0.0.1
+   ```
+   ✅ When the MTC-30 runs you'll see `[artnet] timecode from 10.10.11.226 @ 30 fps`.
+4. Cue sheet: **Source → WebSocket**, type `ws://localhost:8765`, **Connect**. The clock turns **🔵 blue** and follows the MTC-30. QLab still gets its cues.
+
+> ⚠️ In this mode start/stop the clock **on the MTC-30**. Don't use **⇢ TC OUT** / Manual, and don't add `--artnet-out` — the Mac and the box would send timecode to each other.
+>
+> 🔌 **RTP-MIDI instead of Art-Net?** If your MTC-30 has RTP-MIDI: **Audio MIDI Setup → Window → Show MIDI Studio → Network**, create a session, connect it to the MTC-30, then run the relay with `uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "Session 1" --qlab 127.0.0.1` (use your session's name).
+
+**Back to normal (cue sheet is master):** stop the relay (**Ctrl + C**), set the MTC-30 back to **Art-Net in** (reader), then redo steps 3️⃣ and 6️⃣.
 
 ---
 
@@ -187,7 +214,7 @@ Use this only if **Horae** generates the timecode and the cue sheet just follows
 2. In **Horae**: tick **`IAC Driver Bus 1`** in the MTC Destination list, press ▶️ **Play**.
 3. Start the relay in MTC mode (instead of step 3️⃣):
    ```bash
-   uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "IAC" --qlab 127.0.0.1
+   cd ~/Documents/Git/Show_Timecode && uv run --with websockets --with python-rtmidi python3 tc_relay.py --mtc "IAC" --qlab 127.0.0.1
    ```
 4. Cue sheet: **Source → WebSocket**, type `ws://localhost:8765`, **Connect**. The clock turns **🔵 blue** and follows Horae.
 
@@ -198,17 +225,19 @@ Use this only if **Horae** generates the timecode and the cue sheet just follows
 | What you see | Why | Fix |
 |---|---|---|
 | `localhost:8085` won't load | Docker isn't running | Step 1️⃣, then step 2️⃣ again |
+| `localhost:8085` shows **404 Not Found** | The page file was replaced (update / edit) and Docker lost it | Step 2️⃣ again, then reload the page |
 | Relay says `address already in use` | Docker's test clock is on, or a relay is already running in another window | `docker stop tc-relay`, close other relay windows, then step 3️⃣ again |
 | `command not found: uv` | uv not installed, or Terminal not reopened | One-time setup step 2, then **reopen Terminal** |
 | **⇢ TC OUT** says *relay unreachable* | Relay window closed / not started | Step 3️⃣ |
 | Clock stays `--:--:--:--` | Clock not started | Press **▶ START** (Source must be **Manual**) |
-| MTC-30 doesn't follow | Not on the network, or not in Art-Net mode | `ping -c 3 10.10.11.226` · set MTC-30 source to **Art-Net** · check the TC OUT dot is 🔵 |
+| MTC-30 doesn't follow | Not on the network, not in Art-Net mode, or the box is stuck | `ping -c 3 10.10.11.226` · set MTC-30 source to **Art-Net** · check the TC OUT dot is 🔵 · still nothing? **Turn the MTC-30 off and on again** (fixes a stuck box) |
 | QLab doesn't start cues | QLab closed, OSC off, or numbers don't match | QLab open · OSC access ON · QLab cue number = **Cue#** in the cue sheet |
 | QLab cue fires but it's the wrong one | Cue numbers differ | Make QLab's cue number exactly the cue sheet's **Cue#** |
 | Cues never turn green | Wrong Act selected | **Act** dropdown must match the act you're playing |
 | Can't type in the table | Edit is off | Click **✎ Edit: OFF** → it becomes **ON** |
 | Clicking a cue doesn't jump | Edit is on, or Source isn't Manual | Turn **✎ Edit** OFF · Source → **Manual** |
-| Page looks old after an update | Docker is serving the old file | `cd ~/Documents/Git/Show_Timecode && docker compose restart cuesheet`, then reload the page |
+| Page looks old after an update | Docker is serving the old file | Step 2️⃣ again, then reload the page (**⌘ + R**) |
+| Big clock never turns 🟢 green | The MTC-30 doesn't send Art-Net back | Normal — turn on the MTC-30's **Art-Net output** if you want to see its time. The show works either way |
 
 **When in doubt:** reload the page (**⌘ + R**), choose **Source → Manual**, click **⇢ TC OUT**. That fixes almost everything. 🔄
 
@@ -217,7 +246,7 @@ Use this only if **Horae** generates the timecode and the cue sheet just follows
 # tc_relay.py — Timecode WebSocket Relay
 
 Bridges **MIDI Time Code (MTC)** — local, virtual bus, or network (RTP-MIDI) — **Art-Net Timecode**, or a **free-run generator** to any number of WebSocket clients (browsers, etc.), and speaks **OSC** both ways (TC + cue fires out, remote transport in).  
-Used as the TC source backend for `timecode_cue_sheet.html`.
+Used as the TC source backend for `timecode_cue_sheet_4.html`.
 
 ---
 
@@ -283,7 +312,7 @@ Listens for **ArtTimeCode** (OpCode `0x9700`) on UDP **6454**. No MIDI driver, n
 
 ```bash
 python3 tc_relay.py --artnet
-python3 tc_relay.py --artnet --artnet-src 10.10.11.214   # only this sender (others on the net are ignored)
+python3 tc_relay.py --artnet --artnet-src 10.10.11.226   # only this sender (others on the net are ignored)
 ```
 
 On the **DOREMiDi Timecode Center (MTC-30)**, enable Art-Net TimeCode output — it broadcasts to the subnet (e.g. `10.10.11.255`). The relay logs `[artnet] timecode from <ip> @ <fps> fps` on the first packet, so you know it's hearing it.
@@ -301,7 +330,7 @@ The cue sheet's **Manual** transport (▶ START / ■ STOP / ±1s / typed start 
 ```bash
 python3 tc_relay.py --artnet-out 10.10.11.255              # broadcast to the show subnet
 python3 tc_relay.py --artnet-out 10.10.11.226              # or unicast to the MTC-30 only
-python3 tc_relay.py --artnet --artnet-out 10.10.11.255     # combine with Art-Net IN
+python3 tc_relay.py --artnet-out 10.10.11.226 --artnet --artnet-src 10.10.11.226   # + show the MTC-30's own time
 ```
 
 In the cue sheet:
@@ -315,7 +344,8 @@ In the cue sheet:
 - On the MTC-30, set its timecode source to **Art-Net** (reader mode).
 - If the relay was started without `--artnet-out` / `--osc-out` / `--osc-in`, the page shows *"relay not started with …"*.
 - The same **⇢ TC OUT** connection also carries OSC OUT and OSC IN (see mode 4 below).
-- With `--artnet` also on, the relay hears its own output, so other screens on **Source → WebSocket** follow the Manual playback too.
+- Other screens on **Source → WebSocket** get the show clock straight from the relay (`{"tc": …}` every frame).
+- With `--artnet` also on, Art-Net TC from another sender (e.g. the MTC-30's Art-Net output) goes to the page as `{"type": "device_tc"}` and shows in the big clock (🟢 *(MTC-30)*); the cue sheet stays the master. The relay ignores its own Art-Net coming back.
 - **On macOS, run this natively, not in Docker** — and stop the Docker `tc-relay` container first (`docker stop tc-relay`), otherwise the native relay fails with `address already in use` on 8765.
 
 ---
@@ -412,7 +442,7 @@ Any other client (Node, Max/MSP, TouchOSC, etc.) can consume the same stream.
 
 ## Connecting the cue sheet
 
-In `timecode_cue_sheet.html`:
+In `timecode_cue_sheet_4.html`:
 
 1. Chase bar → **Source: WebSocket**
 2. Enter `ws://<Pi IP>:8765`
@@ -537,6 +567,8 @@ Change `--mtc "MOTU"` to `--mtc "TimeCore"` (or whatever the RTP-MIDI session/po
 
 | Mode | Command |
 |---|---|
+| **Show day (Quick Start step 3️⃣)** | `python3 tc_relay.py --artnet-out 10.10.11.226 --artnet --artnet-src 10.10.11.226 --qlab 127.0.0.1 --osc-in 9000` |
+| MTC-30 TC + its own time back in the big clock | `python3 tc_relay.py --artnet-out 10.10.11.226 --artnet --artnet-src 10.10.11.226` |
 | MTC from MOTU interface | `python3 tc_relay.py --mtc "MOTU"` |
 | MTC over RTP-MIDI (Horae/TimeCore) | `python3 tc_relay.py --mtc "TimeCore"` |
 | MTC, custom WS port | `python3 tc_relay.py --mtc "USB MIDI" --ws-port 9000` |
