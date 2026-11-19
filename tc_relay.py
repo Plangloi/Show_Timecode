@@ -38,6 +38,7 @@ import asyncio, json, argparse, time, sys, socket, struct, shlex
 
 clients = set()
 last_cue_sync = None  # most recent cuesheet_sync payload, replayed to newly-joined clients
+last_transport = None # most recent Manual transport state (play/stop/paused/act), for phones
 manual_out = None     # ManualOut when started with --artnet-out / --osc-out / --osc-in
 osc_out = None        # OscOut when started with --osc-out
 
@@ -159,11 +160,13 @@ class OscOut:
             self._sendto(self.qlab, addr, args)
 
 async def ws_handler(websocket):
-    global last_cue_sync
+    global last_cue_sync, last_transport
     clients.add(websocket)
     try:
         if last_cue_sync is not None:
             await websocket.send(last_cue_sync)
+        if last_transport is not None:
+            await websocket.send(last_transport)
         async for message in websocket:
             try:
                 msg = json.loads(message)
@@ -177,6 +180,10 @@ async def ws_handler(websocket):
                     try:
                         manual_out.update(msg)
                         status = {"ok": True, "dest": manual_out.describe()}
+                        last_transport = json.dumps({"type": "transport", "state": msg.get("state"),
+                                                     "paused": bool(msg.get("paused")), "act": msg.get("act"),
+                                                     "sec": msg.get("sec"), "fps": manual_out.fps})
+                        await broadcast_raw(last_transport)   # phones show PLAY / PAUSE / STOP right
                     except (TypeError, ValueError):
                         status = {"ok": False, "msg": "bad tc_out message"}
                 await websocket.send(json.dumps({"type": "tc_out_status", **status}))
@@ -187,7 +194,16 @@ async def ws_handler(websocket):
                 continue
             if kind == "cuesheet_sync":
                 last_cue_sync = message
+            if kind == "remote":             # a phone's command — stamp the sender's address (marker "by" fallback)
+                try:
+                    msg["from"] = websocket.remote_address[0]
+                    message = json.dumps(msg)
+                except (TypeError, IndexError, AttributeError):
+                    pass
             await broadcast_raw(message)
+    except Exception as e:                   # browser reloaded / tab closed / Wi-Fi dropped — normal, not a crash
+        if type(e).__name__ not in ("ConnectionClosedError", "ConnectionClosedOK"):
+            raise
     finally:
         clients.discard(websocket)
 
@@ -369,7 +385,7 @@ class ManualOut:
                 pass
 
 # ---------------------------------------------------------------- OSC IN (remote transport)
-REMOTE_CMDS = {"play", "start", "stop", "pause", "toggle", "locate", "nudge", "cue", "next", "prev"}
+REMOTE_CMDS = {"play", "start", "stop", "pause", "mark", "act", "toggle", "locate", "nudge", "cue", "next", "prev"}
 
 async def osc_in(port):
     """Remote-control the cue sheet's Manual transport. Commands are forwarded to
@@ -387,7 +403,7 @@ async def osc_in(port):
                 pass
 
     await loop.create_datagram_endpoint(Proto, local_addr=("0.0.0.0", port))
-    print(f"[osc-in] listening on udp/{port}: /play /stop /pause /toggle /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
+    print(f"[osc-in] listening on udp/{port}: /play /stop /pause /toggle /mark /act <n> /locate <tc|sec> /nudge <sec> /cue <#> /next /prev")
     while True:
         addr, args, src = await queue.get()
         parts = [p for p in addr.lower().split("/") if p]
@@ -403,7 +419,7 @@ async def osc_in(port):
         arg = args[0] if args else None
         print(f"[osc-in] {cmd}" + (f" {arg}" if arg is not None else "") + f" from {src}"
               + ("" if clients else "  (no cue sheet connected — nothing to drive)"))
-        await broadcast_raw(json.dumps({"type": "remote", "cmd": cmd, "arg": arg}))
+        await broadcast_raw(json.dumps({"type": "remote", "cmd": cmd, "arg": arg, "from": src}))
 
 # ---------------------------------------------------------------- fake source
 async def fake_source(start_tc: str, fps: int):

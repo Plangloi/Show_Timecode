@@ -6,15 +6,19 @@
 <title>Show Control — Timecode Cue Sheet</title>
 <!-- SheetJS for XLSX import — download xlsx.full.min.js locally for offline LAN use -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Theme fonts — falls back to system fonts when offline -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+/* Operator console theme — blue-grey, green (running), amber (next / paused), blue (connections), Inter + JetBrains Mono */
 :root{
-  --bg:#0d1117;--surface:#161b22;--surface2:#1c2333;--border:#30363d;
-  --text:#e6edf3;--dim:#8b949e;--muted:#484f58;
-  --red:#f85149;--green:#3fb950;--amber:#d29922;--blue:#58a6ff;--purple:#bc8cff;
-  --accent:#2d7dd2;--flag:#ff9d5c;
-  --font:'SF Mono','Cascadia Code','JetBrains Mono','Fira Code',monospace;
-  --sans:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --bg:#0B0D10;--surface:#14171C;--surface2:#14171C;--table:#101318;--border:#1F242C;--border2:#2A303A;
+  --text:#E6E8EB;--text2:#C3C9D2;--dim:#8B93A0;--muted:#4A515C;
+  --red:#FF8A8A;--green:#3DD68C;--green2:#7EE2B0;--amber:#F5A524;--amber2:#F5C46B;--blue:#5AA9FF;--blue2:#8EC5FF;--purple:#C3A6FF;
+  --accent:#5AA9FF;--flag:#E6E8EB;
+  --font:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace;
+  --sans:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
 }
 html{font-size:13px;background:var(--bg);color:var(--text)}
 body{font-family:var(--sans);min-height:100vh}
@@ -87,6 +91,9 @@ body.markers-open .btn-marker-list{display:none}
 .marker-name:hover{background:rgba(88,166,255,.08)}
 .marker-name:focus{background:rgba(88,166,255,.15)}
 .marker-name{flex:1}
+.marker-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.marker-note{font-size:.78rem;color:var(--text2);min-height:1em}
+.marker-by{font-size:.72rem;color:var(--dim);background:var(--border);border-radius:999px;padding:1px 8px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:0 2px;line-height:1}
 .marker-del:hover{color:var(--red)}
 
@@ -202,6 +209,108 @@ body:not(.edit-mode) #tbody tr[data-locate]:hover td:nth-child(3){color:var(--ac
 .import-info{font-family:var(--font);font-size:.75rem;color:var(--dim);padding:4px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:none}
 .import-info span{color:var(--green)}
 .modified-flag{color:var(--amber)!important;font-weight:700}
+
+/* ===== OPERATOR CONSOLE THEME — look only (overrides the rules above) ===== */
+html{font-size:14px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.header{background:var(--bg);border-bottom:1px solid var(--border);padding:12px 24px}
+.logo{font-family:var(--sans);color:var(--text);text-transform:none;letter-spacing:.02em;display:flex;align-items:center;gap:10px}
+.logo::before{content:'';width:18px;height:18px;border:2px solid var(--amber);border-radius:50%;box-sizing:border-box;flex:none}
+.logo span{color:var(--dim);margin-left:0}
+.clock-label{font-family:var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.1em;font-size:.72rem;color:var(--dim)}
+.clock{color:var(--text2);font-weight:500}
+.btn-settings{background:var(--surface);border-color:var(--border2);border-radius:8px;color:var(--text2)}
+
+.tc-band{background:var(--bg);border-bottom:0;padding:24px 24px 20px;gap:16px}
+.tc-center{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 24px}
+.tc-center .clock-label{color:var(--green2);margin-bottom:8px}
+.showtc{font-weight:700;letter-spacing:-.02em;color:var(--muted);text-shadow:none;font-variant-numeric:tabular-nums}
+.showtc.running,.showtc.dev{color:var(--green);text-shadow:none}
+.showtc.paused{color:var(--amber);text-shadow:none}
+.showtc.ws{color:var(--blue);text-shadow:none}
+.showtc.mtc{color:var(--purple);text-shadow:none}
+.next-side{font-size:calc(.95rem * var(--tc-side-scale,1));line-height:1.6}
+#nowInfo:not(:empty),#nextInfo:not(:empty){background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px}
+.next-side.now{text-align:left}
+.next-side b{font-family:var(--sans);font-weight:600}
+.next-side .big{color:var(--amber);font-weight:700}
+
+.meta-bar{background:var(--bg);border-bottom:0;padding:0 24px 16px;font-size:.9rem}
+.meta-bar>span{background:var(--surface);border-color:var(--border);border-radius:999px;padding:5px 14px}
+.meta-bar b{font-family:var(--sans);text-transform:uppercase;letter-spacing:.08em;font-weight:600;font-size:.7rem}
+
+.chase-bar{background:var(--bg);border-bottom:0;padding:0 24px 20px;gap:12px}
+.chase-bar label,.filters label{text-transform:none;letter-spacing:0;font-weight:500;font-size:.9rem;color:var(--dim)}
+.chase-bar input,.chase-bar select,.filters select,.filters input[type="text"]{background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:0 12px;height:44px;color:var(--text)}
+.filters select,.filters input[type="text"]{height:40px}
+.chase-bar input:focus,.chase-bar select:focus,.filters select:focus,.filters input:focus{border-color:var(--blue)}
+.tc-mini{color:var(--dim);font-size:1.05rem}
+.tc-mini.running{color:var(--green)}
+.btn-chase{height:48px;min-width:140px;padding:0 20px;border-radius:10px;background:var(--green);color:var(--bg);font-size:.95rem;letter-spacing:.04em}
+.btn-chase.stop{background:#1E1314;border:1px solid #5A2A2A;color:var(--red)}
+.btn-chase.pause{background:var(--amber2);color:var(--bg)}
+.btn-chase.pause.resume{background:var(--green)}
+.btn-chase:disabled{opacity:.3}
+.ws-dot{width:8px;height:8px}
+.ws-dot.ok{background:var(--blue);box-shadow:none}
+
+.btn-sm{background:var(--surface);color:var(--text2);border:1px solid var(--border2);border-radius:10px;padding:0 14px;height:40px;font-size:.9rem;font-weight:500}
+.chase-bar .btn-sm{height:48px}
+.chase-bar .btn-sm[onclick^="nudge"]{font-family:var(--font)}
+.btn-sm:hover{color:var(--text);border-color:#3A424E}
+.btn-sm.active{color:var(--blue2);border-color:#234A75;background:#12233A}
+.btn-sm.edit-on{background:#3A2A0E;border-color:var(--amber);color:var(--amber2);font-weight:600}
+.btn-marker{background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:10px;padding:0 16px;height:44px;font-weight:600}
+.btn-marker-list{border-color:var(--border2);color:var(--dim);border-radius:10px;height:44px;padding:0 14px}
+.btn-marker-list:hover{background:var(--surface);color:var(--text)}
+.btn-import{background:var(--blue);border-color:var(--blue);color:var(--bg);border-radius:10px}
+
+.filters{background:var(--bg);border-bottom:1px solid var(--border);padding:12px 24px}
+.filter-count{color:var(--dim)}
+
+.marker-panel{background:var(--surface);border-left-color:var(--border)}
+.marker-panel-head{color:var(--text);font-family:var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.1em;font-size:.75rem}
+.marker-panel-close{border-radius:8px;border-color:var(--border2)}
+.marker-tc{color:var(--amber2)}
+.settings-menu{background:var(--surface);border-color:var(--border);border-radius:12px}
+.settings-menu button{border-radius:8px}
+.settings-menu button:hover{background:var(--border)}
+
+table{font-size:.92rem;background:var(--table)}
+th{background:var(--table);font-family:var(--sans);text-transform:uppercase;letter-spacing:.08em;font-weight:600;font-size:.72rem;padding:12px 14px;border-bottom:1px solid var(--border);color:var(--dim)}
+td{padding:12px 14px;border-bottom:1px solid #1A1E25}
+td.tc{color:var(--text2)}
+tr:hover td{background:rgba(90,169,255,.05)}
+tr.banner-row td{background:var(--surface);color:var(--blue2);font-family:var(--sans);font-weight:600;letter-spacing:.06em;border-bottom:1px solid var(--border)}
+tr.banner-int td{color:var(--muted);border-bottom:1px dashed var(--border)}
+tr.cue-active td{background:#0F2219!important;border-top:1px solid #1A1E25;border-bottom:1px solid #1A1E25}
+tr.cue-active td:first-child{border-left:0;box-shadow:inset 3px 0 0 var(--green)}
+.cue-progress{background:var(--green)}
+tr.drag-over-top td{border-top-color:var(--blue)}
+tr.drag-over-bottom td{border-bottom-color:var(--blue)}
+
+.status{font-family:var(--sans);text-transform:none;letter-spacing:0;border-radius:999px;padding:4px 10px;font-size:.8rem}
+.status-running{background:var(--green);color:var(--bg);animation:none}
+.status-ready{background:transparent;color:var(--text2);box-shadow:inset 0 0 0 1px var(--border2)}
+.status-standby{background:#3A2A0E;color:var(--amber2)}
+.status-hold{background:#241C3A;color:var(--purple)}
+.status-done{background:#1A1E25;color:var(--dim)}
+.status-cut{background:var(--surface);color:var(--muted)}
+.dur{color:var(--dim);font-weight:500}
+.music{color:var(--blue2)}
+.row-btn{border-radius:5px}
+[contenteditable="true"]:hover{background:rgba(90,169,255,.08)}
+[contenteditable="true"]:focus{background:rgba(90,169,255,.14)}
+.import-info{background:var(--bg)}
+.import-info span{color:var(--green)}
+.modified-flag{color:var(--amber)!important}
+.drop-overlay{background:rgba(11,13,16,.94)}
+.drop-box{border-color:var(--blue);border-radius:14px}
+.drop-box h2{color:var(--blue)}
+.toast{background:var(--green);color:var(--bg);border-radius:10px}
+.toast.err{background:var(--red);color:var(--bg)}
+.tc-resize::after{background:var(--border2)}
+.tc-resize:hover,.tc-resize.dragging{background:rgba(90,169,255,.1)}
 
 @media(max-width:768px){body.markers-open{padding-right:0}.marker-resize{display:none}.marker-panel{width:100%;max-width:320px;box-shadow:-8px 0 24px rgba(0,0,0,.5)}.header{padding:8px 12px}.showtc{font-size:calc(2.4rem * var(--tc-scale,1))}.tc-band{grid-template-columns:1fr;gap:6px}.next-side.now,.next-side.next{text-align:center}.meta-bar,.filters,.chase-bar{padding:6px 12px;gap:8px}table{font-size:.8rem}th,td{padding:4px 6px}}
 @media print{.top-bar{position:static}.settings,.clocks,.filter-count,.btn-sm,.btn-import,.btn-chase,.btn-marker,.btn-marker-list,.marker-panel,.import-info,.drag-handle,.chase-bar,.tc-resize{display:none}*{color:#000!important;background:#fff!important;border-color:#ccc!important}.status{border:1px solid #666}tr.banner-row td{background:#e0e0e0!important;border-bottom:2px solid #333!important}}
@@ -405,8 +514,10 @@ function saveState(skipBroadcast){
         savedAt:new Date().toISOString()}));
       const el=document.getElementById('saveStamp');
       if(el)el.textContent='saved '+new Date().toLocaleTimeString();
-      if(!skipBroadcast&&chase.ws&&chase.ws.readyState===WebSocket.OPEN){
-        chase.ws.send(JSON.stringify({type:'cuesheet_sync',cues,orderModified,meta,tcColor:tcColorManual,markers,markerSeq}));
+      if(!skipBroadcast){
+        const msg=JSON.stringify({type:'cuesheet_sync',cues,orderModified,meta,tcColor:tcColorManual,markers,markerSeq});
+        if(chase.ws&&chase.ws.readyState===WebSocket.OPEN)chase.ws.send(msg);
+        if(chase.outWs&&chase.outWs.readyState===WebSocket.OPEN)chase.outWs.send(msg);   // phones / other screens
       }
     }catch(e){console.warn('save failed',e)}
   },300);
@@ -654,8 +765,16 @@ function sendTcOut(){
   const w=chase.outWs;if(!w||w.readyState!==WebSocket.OPEN)return;
   const sec=chase.running?chaseNow()
     :(chase.outHold??tcToSec(document.getElementById('tcInput').value)??ACT_ANCHOR[+document.getElementById('chaseAct').value]);
-  w.send(JSON.stringify({type:'tc_out',state:chase.running?'play':'stop',sec,fps:FPS}));
+  w.send(JSON.stringify({type:'tc_out',state:chase.running?'play':'stop',paused:chase.paused,
+    act:+document.getElementById('chaseAct').value,sec,fps:FPS}));
 }
+/* The cue list for phones / other screens — also sent over TC OUT, so the
+   Manual master shares its sheet (the relay replays it to late joiners). */
+function cueSyncMsg(){
+  const meta={};['mShow','mVenue','mProg','mMaster','mTC','mFPS'].forEach(id=>meta[id]=document.getElementById(id).textContent);
+  return JSON.stringify({type:'cuesheet_sync',cues,orderModified,meta,tcColor:tcColorManual,markers,markerSeq});
+}
+document.getElementById('chaseAct').addEventListener('change',()=>sendTcOut());
 function toggleArtnetOut(){
   if(chase.outWs){chase.outWs.close();return}
   const url=document.getElementById('outUrl').value.trim();
@@ -664,10 +783,10 @@ function toggleArtnetOut(){
   try{ws=new WebSocket(url)}catch(e){toast('Bad WS URL',true);return}
   let announced=false;
   const btn=document.getElementById('outBtn');
-  ws.onopen=()=>{document.getElementById('outDot').classList.add('ok');btn.classList.add('active');sendTcOut()};
+  ws.onopen=()=>{document.getElementById('outDot').classList.add('ok');btn.classList.add('active');sendTcOut();ws.send(cueSyncMsg())};
   ws.onmessage=ev=>{
     let j=null;try{j=JSON.parse(ev.data)}catch(e){return}
-    if(j&&j.type==='remote'){applyRemote(j.cmd,j.arg);return}   // OSC IN via the relay
+    if(j&&j.type==='remote'){applyRemote(j.cmd,j.arg,j.from);return}   // OSC IN / phones via the relay
     if(j&&j.type==='device_tc'){const s=tcToSec(j.dtc);if(s!=null){chase.devSec=s;chase.devAt=performance.now()}return}   // MTC-30 feedback (--artnet)
     if(!j||j.type!=='tc_out_status')return;   // TC / cue-sheet sync from other hosts: not ours
     if(!j.ok){toast('TC OUT: '+j.msg,true);ws.close();return}
@@ -701,7 +820,7 @@ function transportPos(){
   return chaseNow()??chase.outHold??tcToSec(document.getElementById('tcInput').value)
     ??ACT_ANCHOR[+document.getElementById('chaseAct').value];
 }
-function applyRemote(cmd,arg){
+function applyRemote(cmd,arg,from){
   if(document.getElementById('tcProto').value!=='manual')return;
   const label='OSC '+cmd+(arg!=null?' '+arg:'');
   if(cmd==='pause'){if(chase.running||chase.paused){togglePause();toast(label)}return}
@@ -715,6 +834,17 @@ function applyRemote(cmd,arg){
     if(sec==null){toast(label+' — bad time',true);return}
     if(locateSec(sec))toast(`OSC locate → ${tc2(sec)}`);return}
   if(cmd==='nudge'){nudge(+arg||1);return}
+  if(cmd==='mark'){   // arg = OSC "/mark LX" text, or a phone's {by, id}; no name → the device address the relay saw
+    const o=arg&&typeof arg==='object'?arg:{by:arg};
+    const name=typeof o.by==='string'&&o.by.trim()?o.by.trim().slice(0,32):null;
+    captureMarker(name||(from?'device '+from:'remote'),typeof o.id==='string'?o.id.slice(0,40):null);return}
+  if(cmd==='marknote'){   // a phone adds / edits a marker's note: {id, note}
+    if(arg&&typeof arg==='object'&&typeof arg.id==='string')setMarkerNote(arg.id,String(arg.note??''),true);
+    return}
+  if(cmd==='act'){
+    const sel=document.getElementById('chaseAct');
+    if([...sel.options].some(o=>o.value===String(arg))){sel.value=String(arg);sendTcOut();toast('Act '+arg)}
+    return}
   const act=+document.getElementById('chaseAct').value;
   const list=cues.map((c,i)=>({c,i})).filter(x=>x.c.kind!=='banner'&&x.c.tcInSec!=null);
   if(cmd==='cue'){
@@ -759,21 +889,31 @@ function toggleFollow(){chase.follow=!chase.follow;document.getElementById('foll
    live TC into a named, editable list; synced like any other edit.
    ========================================================= */
 function markerId(){return 'm'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
-function captureMarker(){
+function captureMarker(by,id){
+  by=typeof by==='string'&&by?by:'Mac';   // who made it — the Mac's own ⚑ MARK / Space is "Mac"
+  if(id&&markers.some(m=>m.id===id))return;   // same phone request seen twice
   const t=chaseNow();
   if(t==null){toast('No live TC — start the chase or connect a source first',true);return}
   markerSeq++;
   const active=chase.activeIdx>=0?cues[chase.activeIdx]:null;
   const name=(active&&active.label)?active.label:'Marker '+markerSeq;
-  const m={id:markerId(),seq:markerSeq,name,sec:t,tc:tc2(t)};
+  const m={id:id||markerId(),seq:markerSeq,name,sec:t,tc:tc2(t),by,note:''};
   markers.unshift(m);
   renderMarkers();
   saveState();
-  toast('Marker captured @ '+m.tc+(active&&active.label?' — '+name:''));
+  toast('Marker captured @ '+m.tc+(active&&active.label?' — '+name:'')+(by!=='Mac'?' · by '+by:''));
 }
 function deleteMarker(id){
   markers=markers.filter(m=>m.id!==id);
   renderMarkers();saveState();
+}
+function setMarkerNote(id,note,fromRemote){
+  const m=markers.find(m=>m.id===id);if(!m)return;
+  const val=note.trim().slice(0,500);
+  if((m.note||'')===val)return;
+  m.note=val;
+  if(fromRemote){renderMarkers();toast('Note on marker '+m.tc+(m.by?' · by '+m.by:''))}
+  saveState();
 }
 function renameMarker(id,name){
   const m=markers.find(m=>m.id===id);if(!m)return;
@@ -854,9 +994,17 @@ function renderMarkers(){
   el.innerHTML=markers.map(m=>`
     <div class="marker-row">
       <span class="marker-tc" onclick="jumpToMarker(${m.sec})" title="Set TC input to this marker">${m.tc}</span>
-      <span class="marker-name" contenteditable="true" data-id="${m.id}">${esc(m.name)}</span>
+      <div class="marker-body">
+        <span class="marker-name" contenteditable="true" data-id="${m.id}">${esc(m.name)}</span>
+        <span class="marker-note" contenteditable="true" data-id="${m.id}" data-ph="add note…">${esc(m.note||'')}</span>
+      </div>
+      ${m.by?`<span class="marker-by" title="Made by">${esc(m.by)}</span>`:''}
       <button class="marker-del" onclick="deleteMarker('${m.id}')" title="Remove marker">✕</button>
     </div>`).join('');
+  el.querySelectorAll('.marker-note').forEach(sp=>{
+    sp.addEventListener('blur',()=>setMarkerNote(sp.dataset.id,sp.textContent));
+    sp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sp.blur()}});
+  });
   el.querySelectorAll('.marker-name').forEach(sp=>{
     sp.addEventListener('blur',()=>renameMarker(sp.dataset.id,sp.textContent));
     sp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sp.blur()}});
@@ -993,6 +1141,7 @@ function updateChaseUI(){
   el.classList.toggle('running',chase.running&&!chase.wsActive&&!chase.mtcActive);
   el.classList.toggle('ws',chase.wsActive);
   el.classList.toggle('mtc',chase.mtcActive);
+  el.classList.toggle('paused',chase.paused);
   // Big clock = the MTC-30's own time when the relay reports it back (fresh < 1s);
   // the small readout by START always shows the cue sheet clock (what TC OUT sends).
   const dev=!!chase.outWs&&chase.devSec!=null&&performance.now()-chase.devAt<1000;

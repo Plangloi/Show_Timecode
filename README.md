@@ -157,6 +157,34 @@ While it runs:
 
 ---
 
+## 📲 Phone view (follow the show + ⚑ MARK + notes)
+
+Follow the show on your phone: big clock, **NOW / NEXT** with their notes, the **Cues** list (with notes) and the markers. Its only buttons are **⚑ MARK** and marker **notes** — nothing on it can play, stop or move the show, so it's safe to hand to anyone on the crew.
+
+1. On the show Mac, the cue sheet must be on **Source → Manual** with **⇢ TC OUT** connected (steps 3️⃣ to 6️⃣).
+2. Find the show Mac's address:
+   ```bash
+   ipconfig getifaddr en8 || ipconfig getifaddr en0
+   ```
+   (e.g. `10.10.11.209`)
+3. On the phone (same network / Wi-Fi as the show Mac), open **`http://<that address>:8085/remote.html`**
+4. A popup asks **Who's marking?** — type your name (e.g. `SM`, `LX`) → **Continue**. The phone remembers it; next time just tap **Continue**. Change it any time with the **Marking as … ✎** chip.
+5. ✅ The pill at the top turns **🔵 blue** and the clock follows the show. Tip: *Share → Add to Home Screen* to open it like an app.
+
+| Tab | Shows |
+|---|---|
+| **Show** | Big clock (🟢 playing · 🟠 paused · ⚪ stopped), NOW with progress + note, NEXT with countdown + note — **scroll down** for the markers, newest first, with their names (rename one on the Mac → it updates on the phone) and the **⚑ MARK** button |
+| **Cues** | The current act's cues — running 🟢, next 🟠, done faded — with notes |
+
+- **⚑ MARK** on the phone = ⚑ MARK on the Mac: the marker is taken at the show clock, named after the running cue, and shows on every screen. It only works while the clock is running or paused — otherwise the phone says *Not captured*.
+- **Notes:** right after ⚑ MARK a sheet asks *add a note?* — type it → **Save note**, or **Skip** (the marker is already taken, typing never delays it). Tap any marker later to add or edit its note. Notes show on every phone and in the Mac's marker panel, where you can also edit them (click *add note…*).
+- **Who made it:** the name from the popup. Every marker shows **by …** on the Mac and on the phones: your name, **Mac** for the Mac's own ⚑ MARK / Space, or **device 10.10.11.x** if the phone had no name set. The name is whatever people type — it's a label, not a login.
+- Yellow message *"Waiting for the cue sheet"* → on the Mac click **⇢ TC OUT** (and check Source is **Manual**).
+- The pill says *offline · retrying* → the relay isn't running (step 3️⃣) or the phone is on another network.
+- To **control** the show from a phone or Stream Deck, use OSC (next sections) — e.g. TouchOSC / Companion.
+
+---
+
 ## 📱 Other screens (iPad / another laptop)
 
 1. On the show Mac, find its address:
@@ -177,6 +205,8 @@ Send OSC to the show Mac on port **9000** (the relay forwards it to the cue shee
 |---|---|
 | `/play` · `/stop` · `/toggle` | Start / stop the clock |
 | `/pause` | Pause (hold the frame) · send again to resume |
+| `/mark` · `/mark "LX"` | Capture a marker (same as ⚑ MARK) — the optional text is who made it |
+| `/act 2` | Switch the Chase act |
 | `/next` · `/prev` | Jump to next / previous cue |
 | `/cue 12` | Jump to cue 12 |
 | `/locate "01:00:00:00"` | Jump to a time |
@@ -237,6 +267,7 @@ Use this only if **Horae** generates the timecode and the cue sheet just follows
 | Can't type in the table | Edit is off | Click **✎ Edit: OFF** → it becomes **ON** |
 | Clicking a cue doesn't jump | Edit is on, or Source isn't Manual | Turn **✎ Edit** OFF · Source → **Manual** |
 | Page looks old after an update | Docker is serving the old file | Step 2️⃣ again, then reload the page (**⌘ + R**) |
+| Phone view stuck on *Waiting for the cue sheet* | The Mac's cue sheet isn't sending | On the Mac: **Source → Manual**, click **⇢ TC OUT** |
 | Big clock never turns 🟢 green | The MTC-30 doesn't send Art-Net back | Normal — turn on the MTC-30's **Art-Net output** if you want to see its time. The show works either way |
 
 **When in doubt:** reload the page (**⌘ + R**), choose **Source → Manual**, click **⇢ TC OUT**. That fixes almost everything. 🔄
