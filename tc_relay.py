@@ -188,6 +188,9 @@ async def ws_handler(websocket):
             if kind == "cuesheet_sync":
                 last_cue_sync = message
             await broadcast_raw(message)
+    except Exception as e:                   # browser reloaded / tab closed / Wi-Fi dropped — normal, not a crash
+        if type(e).__name__ not in ("ConnectionClosedError", "ConnectionClosedOK"):
+            raise
     finally:
         clients.discard(websocket)
 
