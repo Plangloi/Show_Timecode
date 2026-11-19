@@ -26,3 +26,4 @@ services:
       - "${CUESHEET_PORT:-8085}:80"
     volumes:
       - ./timecode_cue_sheet_4.html:/usr/share/nginx/html/index.html:ro
+      - ./remote.html:/usr/share/nginx/html/remote.html:ro      # phone remote
