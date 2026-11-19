@@ -91,6 +91,7 @@ body.markers-open .btn-marker-list{display:none}
 .marker-name:hover{background:rgba(88,166,255,.08)}
 .marker-name:focus{background:rgba(88,166,255,.15)}
 .marker-name{flex:1}
+.marker-by{font-size:.72rem;color:var(--dim);background:var(--border);border-radius:999px;padding:1px 8px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .marker-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:0 2px;line-height:1}
 .marker-del:hover{color:var(--red)}
 
@@ -783,7 +784,7 @@ function toggleArtnetOut(){
   ws.onopen=()=>{document.getElementById('outDot').classList.add('ok');btn.classList.add('active');sendTcOut();ws.send(cueSyncMsg())};
   ws.onmessage=ev=>{
     let j=null;try{j=JSON.parse(ev.data)}catch(e){return}
-    if(j&&j.type==='remote'){applyRemote(j.cmd,j.arg);return}   // OSC IN via the relay
+    if(j&&j.type==='remote'){applyRemote(j.cmd,j.arg,j.from);return}   // OSC IN / phones via the relay
     if(j&&j.type==='device_tc'){const s=tcToSec(j.dtc);if(s!=null){chase.devSec=s;chase.devAt=performance.now()}return}   // MTC-30 feedback (--artnet)
     if(!j||j.type!=='tc_out_status')return;   // TC / cue-sheet sync from other hosts: not ours
     if(!j.ok){toast('TC OUT: '+j.msg,true);ws.close();return}
@@ -817,7 +818,7 @@ function transportPos(){
   return chaseNow()??chase.outHold??tcToSec(document.getElementById('tcInput').value)
     ??ACT_ANCHOR[+document.getElementById('chaseAct').value];
 }
-function applyRemote(cmd,arg){
+function applyRemote(cmd,arg,from){
   if(document.getElementById('tcProto').value!=='manual')return;
   const label='OSC '+cmd+(arg!=null?' '+arg:'');
   if(cmd==='pause'){if(chase.running||chase.paused){togglePause();toast(label)}return}
@@ -831,7 +832,9 @@ function applyRemote(cmd,arg){
     if(sec==null){toast(label+' — bad time',true);return}
     if(locateSec(sec))toast(`OSC locate → ${tc2(sec)}`);return}
   if(cmd==='nudge'){nudge(+arg||1);return}
-  if(cmd==='mark'){captureMarker();return}
+  if(cmd==='mark'){   // arg = the sender's name (phone / OSC "/mark LX"); else the device address the relay saw
+    const name=typeof arg==='string'&&arg.trim()?arg.trim().slice(0,32):null;
+    captureMarker(name||(from?'device '+from:'remote'));return}
   if(cmd==='act'){
     const sel=document.getElementById('chaseAct');
     if([...sel.options].some(o=>o.value===String(arg))){sel.value=String(arg);sendTcOut();toast('Act '+arg)}
@@ -880,17 +883,18 @@ function toggleFollow(){chase.follow=!chase.follow;document.getElementById('foll
    live TC into a named, editable list; synced like any other edit.
    ========================================================= */
 function markerId(){return 'm'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
-function captureMarker(){
+function captureMarker(by){
+  by=typeof by==='string'&&by?by:'Mac';   // who made it — the Mac's own ⚑ MARK / Space is "Mac"
   const t=chaseNow();
   if(t==null){toast('No live TC — start the chase or connect a source first',true);return}
   markerSeq++;
   const active=chase.activeIdx>=0?cues[chase.activeIdx]:null;
   const name=(active&&active.label)?active.label:'Marker '+markerSeq;
-  const m={id:markerId(),seq:markerSeq,name,sec:t,tc:tc2(t)};
+  const m={id:markerId(),seq:markerSeq,name,sec:t,tc:tc2(t),by};
   markers.unshift(m);
   renderMarkers();
   saveState();
-  toast('Marker captured @ '+m.tc+(active&&active.label?' — '+name:''));
+  toast('Marker captured @ '+m.tc+(active&&active.label?' — '+name:'')+(by!=='Mac'?' · by '+by:''));
 }
 function deleteMarker(id){
   markers=markers.filter(m=>m.id!==id);
@@ -976,6 +980,7 @@ function renderMarkers(){
     <div class="marker-row">
       <span class="marker-tc" onclick="jumpToMarker(${m.sec})" title="Set TC input to this marker">${m.tc}</span>
       <span class="marker-name" contenteditable="true" data-id="${m.id}">${esc(m.name)}</span>
+      ${m.by?`<span class="marker-by" title="Made by">${esc(m.by)}</span>`:''}
       <button class="marker-del" onclick="deleteMarker('${m.id}')" title="Remove marker">✕</button>
     </div>`).join('');
   el.querySelectorAll('.marker-name').forEach(sp=>{

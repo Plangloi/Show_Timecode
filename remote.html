@@ -10,10 +10,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <!--
-  View-only phone screen for the cue sheet. Talks to the relay
-  (ws://<show Mac>:8765) and only LISTENS: show clock, transport state, cue
-  list with notes, and the marker list. It never sends commands — the show is
-  run from the Mac.
+  Phone screen for the cue sheet. Talks to the relay (ws://<show Mac>:8765):
+  shows the show clock, transport state, cue list with notes and the marker
+  list. Its only control is ⚑ MARK, sent as {"type":"remote","cmd":"mark"} —
+  the cue sheet on the Mac (Source → Manual, ⇢ TC OUT) captures the marker.
+  Nothing on this page can play, stop or move the show.
   Open http://<show Mac>:8085/remote.html — add ?ws=ws://host:port to override.
 -->
 <style>
@@ -49,7 +50,8 @@ header{display:flex;align-items:center;gap:10px;padding:16px 20px 12px}
 
 main{flex:1;display:none;flex-direction:column;min-height:0}
 main.show{display:flex}
-#remote{gap:14px;padding:4px 20px 16px;overflow-y:auto}
+#remote{gap:14px;padding:4px 20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#remote>*{flex-shrink:0}
 .clockbox{text-align:center;padding:14px 0 6px;display:flex;flex-direction:column;gap:6px}
 .src{font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--dim)}
 .tc{font-family:var(--mono);font-weight:700;font-size:clamp(40px,14vw,58px);line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--muted)}
@@ -69,14 +71,26 @@ main.show{display:flex}
 .grow{flex:1;min-height:8px}
 .note{font-size:13px;color:var(--text2);line-height:1.4}
 .note:empty{display:none}
-.lastmark{display:flex;align-items:baseline;gap:10px}
-.lastmark .mt{font-family:var(--mono);font-weight:700;color:var(--amber2);font-size:14px;white-space:nowrap}
-.lastmark .mn{font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.marks{display:flex;flex-direction:column;gap:6px;padding-top:6px}
+.mhead{display:flex;align-items:center;gap:8px;padding:4px 2px}
+.markbtn{margin-left:auto;height:44px;padding:0 18px;border-radius:12px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font-weight:700;font-size:14px;letter-spacing:.04em;display:inline-flex;align-items:center;gap:8px}
+.markbtn:active{transform:scale(.97);background:var(--border)}
+.markbtn svg{color:var(--amber2)}
+.who{display:flex;align-items:center;gap:8px;padding:0 2px 4px;font-size:12px;color:var(--dim)}
+.who input{flex:1;min-width:0;height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font:inherit;font-size:14px}
+.who input:focus{outline:none;border-color:var(--blue)}
+.who.ask input{border-color:var(--amber2)}
+.mark .by{font-family:var(--sans);color:var(--text2)}
+.toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.toast.err{border-color:#5A2A2A;color:var(--red)}
+#mlist{display:flex;flex-direction:column;gap:6px}
+#mlist .empty{padding:16px 8px}
 .k.mk{color:var(--dim)}
 
-#cues .top,#marks .top{display:flex;align-items:center;justify-content:space-between;padding:6px 20px 10px}
-#cues .top h2,#marks .top h2{font-size:18px;font-weight:600}
-#cues .top .tcs,#marks .top .tcs{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text2)}
+#cues .top{display:flex;align-items:center;justify-content:space-between;padding:6px 20px 10px}
+#cues .top h2{font-size:18px;font-weight:600}
+#cues .top .tcs{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text2)}
 .list{flex:1;overflow-y:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:6px;-webkit-overflow-scrolling:touch}
 .cue{width:100%;min-height:64px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);text-align:left}
 .cue .nt{font-size:12px;color:var(--text2);line-height:1.35;white-space:normal}
@@ -101,7 +115,7 @@ main.show{display:flex}
 .hint{padding:0 20px 10px;font-size:12px;color:var(--dim);text-align:center}
 .empty{color:var(--dim);font-size:14px;text-align:center;padding:40px 20px}
 
-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--nav)}
+nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--nav)}
 nav button{height:52px;border-radius:12px;border:0;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px;background:transparent;color:var(--dim)}
 nav button.on{background:var(--border);color:var(--text)}
 
@@ -135,11 +149,12 @@ nav button.on{background:var(--border);color:var(--text)}
       </div>
       <span class="count" id="nextCount"></span>
     </div>
-    <div class="card" id="lastMarkCard" style="display:none">
-      <span class="k mk">LAST MARKER</span>
-      <div class="lastmark"><span class="mt" id="lmTc"></span><span class="mn" id="lmName"></span></div>
-    </div>
-    <div class="grow"></div>
+    <section class="marks" aria-label="Markers">
+      <div class="mhead"><span class="k mk">MARKERS</span><span class="badge" id="mBadge"></span>
+        <button class="markbtn" id="markBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>MARK</button></div>
+      <label class="who" id="whoRow">Marking as <input id="who" type="text" maxlength="32" placeholder="your name (e.g. SM, LX)" autocomplete="off" enterkeyhint="done"></label>
+      <div id="mlist"><div class="empty">No markers yet — they appear here when someone presses ⚑ MARK on the Mac.</div></div>
+    </section>
   </main>
 
   <main id="cues">
@@ -147,17 +162,12 @@ nav button.on{background:var(--border);color:var(--text)}
     <div class="list" id="list"><div class="empty">No cues yet — waiting for the cue sheet.</div></div>
   </main>
 
-  <main id="marks">
-    <div class="top"><h2>Markers</h2><span class="tcs" id="tc3">--:--:--:--</span></div>
-    <div class="list" id="mlist"><div class="empty">No markers yet — they appear here when someone presses ⚑ MARK on the Mac.</div></div>
-  </main>
-
   <nav aria-label="Views">
     <button class="on" id="tabRemote"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Show</button>
     <button id="tabCues"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Cues</button>
-    <button id="tabMarks"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>Markers <span class="badge" id="mBadge"></span></button>
   </nav>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -187,8 +197,29 @@ function connect(){
     const s=tcToSec(j.tc);if(s!=null){S.tcSec=s;S.tcAt=performance.now()}
   };
 }
-/* ---- tabs (view only — this page never sends commands) ---- */
-const TABS={remote:'tabRemote',cues:'tabCues',marks:'tabMarks'};
+let toastT;function toast(m,err){const t=$('toast');t.textContent=m;t.classList.toggle('err',!!err);t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200)}
+
+/* ---- ⚑ MARK — the only control: asks the Mac's cue sheet to capture a marker ---- */
+$('markBtn').addEventListener('click',()=>{
+  if(!S.ws||S.ws.readyState!==WebSocket.OPEN){toast('Not connected to the relay',true);return}
+  if(S.state==null){toast('Cue sheet not connected — click ⇢ TC OUT on the Mac',true);return}
+  const before=S.markers.length,me=$('who').value.trim();
+  S.ws.send(JSON.stringify({type:'remote',cmd:'mark',arg:me||null}));   // no name: the relay stamps this phone's address
+  if(!me){$('whoRow').classList.add('ask');setTimeout(()=>$('who').focus(),1300)}   // never delay the mark — ask after
+  if(navigator.vibrate)navigator.vibrate(10);
+  setTimeout(()=>{                                   // the new marker comes back in the cue-sheet sync
+    if(S.markers.length>before)toast('Marker captured @ '+([...S.markers].sort((a,b)=>(b.seq||0)-(a.seq||0))[0].tc||'')+(me?'':' — add your name below'));
+    else toast('Not captured — is the clock running on the Mac?',true);
+  },1200);
+});
+
+/* "Marking as" — remembered on this phone */
+try{$('who').value=localStorage.getItem('markBy')||''}catch(e){}
+$('who').addEventListener('input',()=>{$('whoRow').classList.remove('ask');try{localStorage.setItem('markBy',$('who').value.trim())}catch(e){}});
+$('who').addEventListener('keydown',e=>{if(e.key==='Enter')$('who').blur()});
+
+/* ---- tabs ---- */
+const TABS={remote:'tabRemote',cues:'tabCues'};
 function tab(which){for(const k in TABS){$(k).classList.toggle('show',k===which);$(TABS[k]).classList.toggle('on',k===which)}
   try{localStorage.setItem('remoteTab',which)}catch(e){}
   if(which==='cues'){const run=$('list').querySelector('.cue.running');if(run)run.scrollIntoView({block:'nearest'})}}
@@ -211,7 +242,7 @@ function render(){
   const mode=S.state==null?'':play?'play':S.paused?'pause':'stop';
   $('tc').className='tc '+mode;
   $('tc').innerHTML=txt?`${txt.slice(0,8)}<span class="ff">${txt.slice(8)}</span>`:'--:--:--<span class="ff">:--</span>';
-  $('tc2').textContent=$('tc3').textContent=txt||'--:--:--:--';
+  $('tc2').textContent=txt||'--:--:--:--';
   const fresh=performance.now()-S.devAt<1500;
   $('src').textContent=S.state==null?'SHOW TC':(play?(fresh?'MTC-30 LOCKED':'PLAYING'):S.paused?'PAUSED · HOLDING FRAME':'STOPPED')+` · ${S.fps} FPS`;
   $('src').style.color=play?'var(--green2)':S.paused?'var(--amber2)':'var(--dim)';
@@ -248,15 +279,12 @@ function render(){
 
   // markers — newest first, as on the Mac's marker panel
   const ms=[...S.markers].sort((a,b)=>(b.seq||0)-(a.seq||0));
-  const mkey=ms.map(m=>m.id+(m.name||'')+m.tc).join(';');
+  const mkey=ms.map(m=>m.id+(m.name||'')+m.tc+(m.by||'')).join(';');
   if(mkey!==S.lastMarkKey){S.lastMarkKey=mkey;
     $('mBadge').textContent=ms.length||'';
     $('mlist').innerHTML=ms.length?ms.map(m=>`<div class="mark"><span class="mt">${esc(m.tc||tc2(m.sec)||'')}</span>
-      <span class="mb"><span class="mn">${esc(m.name||'Marker '+(m.seq||''))}</span><span class="ms">#${esc(m.seq??'')}</span></span></div>`).join('')
+      <span class="mb"><span class="mn">${esc(m.name||'Marker '+(m.seq||''))}</span><span class="ms">#${esc(m.seq??'')}${m.by?` · <span class="by">by ${esc(m.by)}</span>`:''}</span></span></div>`).join('')
       :'<div class="empty">No markers yet — they appear here when someone presses ⚑ MARK on the Mac.</div>';
-    const last=ms[0];
-    $('lastMarkCard').style.display=last?'':'none';
-    if(last){$('lmTc').textContent=last.tc||tc2(last.sec)||'';$('lmName').textContent=last.name||'Marker '+(last.seq||'')}
   }
 }
 setInterval(render,100);

@@ -194,6 +194,12 @@ async def ws_handler(websocket):
                 continue
             if kind == "cuesheet_sync":
                 last_cue_sync = message
+            if kind == "remote":             # a phone's command — stamp the sender's address (marker "by" fallback)
+                try:
+                    msg["from"] = websocket.remote_address[0]
+                    message = json.dumps(msg)
+                except (TypeError, IndexError, AttributeError):
+                    pass
             await broadcast_raw(message)
     except Exception as e:                   # browser reloaded / tab closed / Wi-Fi dropped — normal, not a crash
         if type(e).__name__ not in ("ConnectionClosedError", "ConnectionClosedOK"):
@@ -413,7 +419,7 @@ async def osc_in(port):
         arg = args[0] if args else None
         print(f"[osc-in] {cmd}" + (f" {arg}" if arg is not None else "") + f" from {src}"
               + ("" if clients else "  (no cue sheet connected — nothing to drive)"))
-        await broadcast_raw(json.dumps({"type": "remote", "cmd": cmd, "arg": arg}))
+        await broadcast_raw(json.dumps({"type": "remote", "cmd": cmd, "arg": arg, "from": src}))
 
 # ---------------------------------------------------------------- fake source
 async def fake_source(start_tc: str, fps: int):
