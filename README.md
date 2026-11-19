@@ -1,5 +1,5 @@
 # Show_Timecode
-A cue sheet web page that runs the show clock and sends it to the DOREMiDi MTC-30 (Art-Net timecode) and QLab (OSC).
+A cue sheet web page that runs the show clock and sends it to the DOREMiDi MTC-30 (Art-Net timecode) and QLab (OSC) — with a phone view so the crew can follow the show, drop markers and add notes.
 
 ---
 
@@ -19,20 +19,22 @@ Follow the steps **in order, top to bottom**. Every command is something you cop
                                 │
                  ┌──────────────▼───────────────┐
                  │  Relay  (tc_relay.py)        │   runs in a Terminal window
-                 └──┬─────────────┬──────────┬──┘
-                    │             │          │
-        Art-Net timecode    OSC "start cue"   OSC remote control (in)
-                    ▼             ▼          ▲
+                 └──┬──────────┬──────────┬───┬─┘
+                    │          │          │   │
+       Art-Net timecode  OSC "start cue"  │   └─ clock · cues · markers ──▶ 📲 Phones
+                    ▼          ▼          ▲          (⚑ MARK + notes back)   :8085/remote.html
            ┌──────────────┐ ┌──────────┐ ┌────────────────────────┐
            │    MTC-30    │ │   QLab   │ │ QLab / Companion / etc │
            │ 10.10.11.226 │ │ this Mac │ │ → /play /stop /next    │
            └──────────────┘ └──────────┘ └────────────────────────┘
+                                          OSC remote control (in)
 ```
 
 - **Cue sheet** — the web page with the big clock and the list of cues.
 - **Relay** — a small program that takes the clock from the cue sheet and sends it out to the gear.
 - **MTC-30** — the DOREMiDi timecode box at `10.10.11.226`. It follows the cue sheet's clock (Art-Net timecode). If its Art-Net output is on, the big clock shows the box's own time.
 - **QLab** — when the clock reaches a cue, QLab gets told to **start the cue with the same number**.
+- **Phones** — the crew opens a page on their phone to follow the clock and cues, and to drop ⚑ markers with notes. They can't move the show.
 
 ---
 
@@ -127,13 +129,14 @@ In the **Chase** bar (just under the big clock):
 | Stop | **■ STOP** ends the run (the MTC-30 holds the last frame) |
 | Small jump | **−1s / +1s** |
 | Jump to a cue | Click the cue's row (with **✎ Edit: OFF**) — the clock jumps to that cue's start |
-| Mark a moment | **⚑ MARK** (or **Space**) — saves the time in the marker list |
+| Mark a moment | **⚑ MARK** (or **Space**) — saves the time in the marker list, named after the running cue |
+| See / edit markers | **⚑ List** — click a name to rename it, click *add note…* to add a note, ✕ to delete. Markers from phones show who made them |
 | Bigger / smaller clock | Drag the little bar under the big clock · double-click it to reset |
 
 While it runs:
-- The big clock counts **🟠 orange**, the **MTC-30** shows the same time.
+- The big clock counts in **🟢 green** (🟠 amber while paused), and the **MTC-30** shows the same time.
 - The small time just left of **▶ START** is always the cue sheet's own clock (what's being sent out).
-- If the MTC-30 sends its time back, the big clock turns **🟢 green** and says **(MTC-30)** — that's the box's own time.
+- If the MTC-30 sends its time back, the label above the big clock says **(MTC-30)** — the big clock is then showing the box's own time.
 - The current cue turns **🟢 green "Running"**, and **QLab starts the cue with the same number**.
 - **NOW** (left) and **NEXT in …** (right) show what's playing and what's coming.
 
@@ -142,6 +145,21 @@ While it runs:
 - Click **■ STOP**.
 - In the relay's Terminal window press **Ctrl + C** to stop it (or just close the window).
 - The cue sheet page can stay running — it costs nothing.
+- Markers (with their notes and who made them) stay saved in the Mac's browser until **⚙ → Clear saved**.
+
+---
+
+## 🔄 Getting the latest version
+
+When the project has been updated (between shows, never mid-show):
+
+```bash
+cd ~/Documents/Git/Show_Timecode && git pull
+```
+
+Then do steps 2️⃣ and 3️⃣ again (stop the old relay first with **Ctrl + C**), reload the cue sheet (**⌘ + R**) and click **⇢ TC OUT**. Phones: just reload the page.
+
+> ⚠️ Step 2️⃣ matters after an update — without it the page can show **404** or the old version.
 
 ---
 
@@ -189,10 +207,10 @@ Follow the show on your phone: big clock, **NOW / NEXT** with their notes, the *
 
 1. On the show Mac, find its address:
    ```bash
-   ipconfig getifaddr en0
+   ipconfig getifaddr en8 || ipconfig getifaddr en0
    ```
    (e.g. `10.10.11.209`)
-2. On the other device, open `http://<that address>:8085`
+2. On the other device, open `http://<that address>:8085` (for a phone, the **📲 Phone view** above is easier)
 3. **Source → WebSocket**, type `ws://<that address>:8765`, **Connect** → it follows the show clock and shows the same cue sheet edits.
 
 ---
@@ -268,7 +286,11 @@ Use this only if **Horae** generates the timecode and the cue sheet just follows
 | Clicking a cue doesn't jump | Edit is on, or Source isn't Manual | Turn **✎ Edit** OFF · Source → **Manual** |
 | Page looks old after an update | Docker is serving the old file | Step 2️⃣ again, then reload the page (**⌘ + R**) |
 | Phone view stuck on *Waiting for the cue sheet* | The Mac's cue sheet isn't sending | On the Mac: **Source → Manual**, click **⇢ TC OUT** |
-| Big clock never turns 🟢 green | The MTC-30 doesn't send Art-Net back | Normal — turn on the MTC-30's **Art-Net output** if you want to see its time. The show works either way |
+| Phone pill says *offline · retrying* | Relay not running, or phone on another network | Step 3️⃣ · put the phone on the show network / Wi-Fi |
+| Phone says *Not captured* after ⚑ MARK | The clock is stopped | Markers need the clock running or paused — press **▶ START** on the Mac |
+| Phone notes / markers don't reach the Mac | The Mac's page is an old copy | Reload the cue sheet on the Mac (**⌘ + R**) → **Manual** → **⇢ TC OUT** |
+| Phone page shows **404** | Docker lost the file after an update | Step 2️⃣ again |
+| Big clock never shows **(MTC-30)** | The MTC-30 doesn't send Art-Net back | Normal — turn on the MTC-30's **Art-Net output** if you want to see its time. The show works either way |
 
 **When in doubt:** reload the page (**⌘ + R**), choose **Source → Manual**, click **⇢ TC OUT**. That fixes almost everything. 🔄
 
@@ -463,6 +485,17 @@ All modes broadcast to `ws://0.0.0.0:<ws-port>` (default **8765**).
 The cue sheet HTML accepts both plain `"HH:MM:SS:FF"` strings and the JSON wrapper.  
 Any other client (Node, Max/MSP, TouchOSC, etc.) can consume the same stream.
 
+Other messages on the same socket (all JSON with a `type`; clients ignore the ones they don't use):
+
+| `type` | From → to | What |
+|---|---|---|
+| *(none)* `{"tc": …}` | relay → all | Show clock, every frame (Manual mode: what TC OUT is sending) |
+| `transport` | relay → all | Manual transport `state` (`play`/`stop`), `paused`, `act`, `sec`, `fps` — replayed to new clients |
+| `cuesheet_sync` | cue sheet → all | Cue list, markers (`id`, `seq`, `tc`, `name`, `by`, `note`), meta — replayed to new clients |
+| `device_tc` | relay → all | The MTC-30's own Art-Net time (`--artnet` with `--artnet-out`) |
+| `remote` | OSC IN / phones → cue sheet | `{"cmd", "arg", "from"}` — `play` `stop` `pause` `toggle` `next` `prev` `cue` `locate` `nudge` `act` `mark` `marknote`; the relay adds the sender's address as `from` |
+| `tc_out` / `tc_out_status` | cue sheet ↔ relay | Manual transport for TC OUT, and the relay's answer |
+
 | Argument | Default | Description |
 |---|---|---|
 | `--ws-port` | `8765` | WebSocket server port |
@@ -507,14 +540,16 @@ The toolbar **✎ Edit** button switches the table between two modes (remembered
 
 ## Docker
 
-`Dockerfile` + `docker-compose.yml` run the relay and the cue sheet as two containers — `relay` (the WS relay, multi-stage build so the final image only carries the ALSA runtime lib, not the compiler) and `cuesheet` (nginx serving `timecode_cue_sheet_4.html` as a static site).
+`Dockerfile` + `docker-compose.yml` run the relay and the cue sheet as two containers — `relay` (the WS relay, multi-stage build so the final image only carries the ALSA runtime lib, not the compiler) and `cuesheet` (nginx serving `timecode_cue_sheet_4.html` as `/` and `remote.html` — the phone view — as `/remote.html`).
+
+> Both pages are bind-mounted as **single files**. Anything that replaces a file (`git pull`, `git checkout`, `sed -i`, some editors) leaves nginx pointing at the old, deleted file → **404**. Fix: `docker compose up -d --force-recreate cuesheet` (Quick Start step 2️⃣ does this).
 
 ```bash
 docker compose up -d --build
 ```
 
 - Relay: `ws://<host>:8765` — defaults to the free-run generator from `01:00:00:00`, so it works out of the box with zero hardware/config, good for testing the cue sheet.
-- Cue sheet UI: `http://<host>:8085`
+- Cue sheet UI: `http://<host>:8085` · phone view: `http://<host>:8085/remote.html`
 
 **Changing ports** — both are env-var driven (`${RELAY_WS_PORT:-8765}` / `${CUESHEET_PORT:-8085}` in `docker-compose.yml`):
 
@@ -654,13 +689,19 @@ python3 -c "import rtmidi; print(rtmidi.MidiIn().get_ports())"
 ## Architecture summary
 
 ```
-MTC hardware  ──USB/DIN───────▶ python-rtmidi
-MTC network   ──RTP-MIDI──────▶ (OS joins session, appears as a MIDI port)
-  (Horae / TimeCore)                          │
-Free-run generator                            ▼
-                                    asyncio broadcast ──▶ ws://host:8765
-                                                                │
-                                                     ┌──────────┼──────────┐
-                                                Browser 1   Browser 2   Browser N
-                                              (cue sheet HTML, any device on LAN)
+SOURCES (pick one)                                   OUTPUTS
+MTC hardware  ──USB/DIN──▶ python-rtmidi ─┐
+MTC network   ──RTP-MIDI──▶ (OS MIDI port)┤
+Art-Net TC    ──UDP 6454──────────────────┤
+Free-run generator ───────────────────────┤
+                                          ▼
+Cue sheet (Source → Manual, ⇢ TC OUT) ──▶ tc_relay.py ──▶ Art-Net TC OUT ──▶ MTC-30
+        ▲                                   │   │    └──▶ OSC OUT / QLab /cue/<n>/start
+        │   remote: OSC IN :9000, phones    │   │
+        └───────────────────────────────────┘   ▼
+                                         ws://host:8765 (clock · transport · cues · markers)
+                                                │
+                              ┌─────────────────┼──────────────────┐
+                        Cue sheet (Mac)   Other screens      📲 Phones (remote.html)
+                                          (Source → WS)      view + ⚑ MARK + notes
 ```
